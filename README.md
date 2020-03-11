@@ -4,9 +4,15 @@
 
 ## install
 
+Run the following command in the the root directory of the sources:
 ```
 python setup.py install
 ```
+if you do not have the root rights to your system, you can alternatively run:
+```
+python setup.py install --user
+```
+
 
 ## model syntax
 
