@@ -2,6 +2,12 @@
 
 ## Overview
 
+## install
+
+```
+python setup.py install
+```
+
 ## model syntax
 
 Possible keys in the model dictionary:
