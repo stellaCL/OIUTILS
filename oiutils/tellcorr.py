@@ -230,27 +230,27 @@ def gravity(filename, quiet=True, save=True, wlmin=None, wlmax=None, MR=False, a
         # -- SAVE DATA IN PICKLED FILE ----------------------------------------
         # -- wl, raw spectrum, model=spectrum*telluric, telluric
         # -- actual spectrum is then "raw spectrum"/"telluric" (1/3)
-        f = open(filename.replace('.fits', '_spectrum.pickle'), 'wb')
+        #f = open(filename.replace('.fits', '_spectrum.pickle'), 'wb')
         # -- wavelength, raw spectrum, continuum*tellurics, tellurics
-        pickle.dump((wl, sp, Ftran(wl, fit['best']), Ftran(wl, p)), f)
-        f.close()
+        #pickle.dump((wl, sp, Ftran(wl, fit['best']), Ftran(wl, p)), f)
+        #f.close()
+
         # -- SAVE telluric as fits extension in fits file
         f = fits.open(filename, mode='update')
         if 'TELLURICS' in f:
             f.pop('TELLURICS')
         c1 = fits.Column(name='EFF_WAVE', array=wl*1e-6, format='D', unit='m')
-        c2 = fits.Column(name='TELL_TRANS', array=Ftran(wl, p), format='D')
-        c3 = fits.Column(name='CORR_SPEC', array=sp/Ftran(wl, fit['best']), format='D')
-
-        hdu = fits.BinTableHDU.from_columns([c1, c2, c3])
+        c2 = fits.Column(name='RAW_SPEC', array=sp, format='D')
+        c3 = fits.Column(name='TELL_TRANS', array=Ftran(wl, p), format='D')
+        c4 = fits.Column(name='CORR_SPEC', array=sp/Ftran(wl, fit['best']), format='D')
+        
+        hdu = fits.BinTableHDU.from_columns([c1, c2, c3, c4])
         hdu.header['EXTNAME'] = 'TELLURICS'
-        hdu.header['ORIGIN'] = 'tellcorr.py'
+        hdu.header['ORIGIN'] = 'https://github.com/amerand/OIUTILS'
         hdu.header['AUTHOR'] = 'amerand@eso.org'
         hdu.header['DATE'] = time.asctime()
         hdu.header['PWV'] = (round(fit['best']['pwv'], 3), 'mm of precipitable water')
         f.append(hdu)
-        #f.writeto('test.fits', overwrite=True)
-        #f.writeto()
         f.close()
 
     if quiet:
@@ -287,4 +287,8 @@ def gravity(filename, quiet=True, save=True, wlmin=None, wlmax=None, MR=False, a
         plt.vlines(lines[k][0], plt.ylim()[0], plt.ylim()[1], color=lines[k][1],
                 linestyle=lines[k][2], label=k, alpha=0.3, linewidth=1)
     plt.legend(fontsize=6, ncol=4)
+    try:
+        plt.tight_layout()
+    except:
+        pass
     return

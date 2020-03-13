@@ -1,11 +1,15 @@
+import time
+import copy
+
 import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
-import time
+
 import scipy.special
 import scipy.interpolate
 import scipy.stats
 
+from oiutils import dpfit
 
 _c = np.pi**2/180/3600/1000*1e6
 
@@ -806,6 +810,45 @@ def computeT3fromVisOI(oi):
                                        np.abs(oi['IM_VIS'][t[2]]['|V|'][w2,:])
     return oi
 
+
+def testTelescopes(k, telescopes):
+    """
+    k: a telescope, baseline or triplet (str)
+        eg: 'A0', 'A0G1', 'A0G1K0' etc.
+    telescopes: single or list of telescopes (str)
+        eg: 'G1', ['G1', 'A0'], etc.
+
+    returns True if any telescope in k
+       
+    assumes all telescope names have same length!
+    """
+    if type(telescopes)==str:
+        telescopes = [telescopes]
+    test = False
+    for t in telescopes:
+        test = test or (t in k)
+    return test
+
+def testBaselines(k, baselines):
+    """
+    k: a telescope, baseline or triplet (str)
+        eg: 'A0', 'A0G1', 'A0G1K0' etc.
+    baselines: single or list of baselines (str)
+        eg: 'G1A0', ['G1A0', 'A0C1'], etc.
+
+    returns True if any baseline in k
+        always False for telescopes
+        order of telescope does not matter
+
+    assumes all telescope names have same length!
+    """
+    if type(baselines)==str:
+        baselines = [baselines]
+    test = False
+    for b in baselines:
+        test = test or (b[:len(b)//2] in k and b[len(b)//2:] in k)
+    return test
+
 def residualsOI(oi, param, timeit=False):
     """
     assumes dict OI has a key "fit" which list observable to fit:
@@ -816,15 +859,17 @@ def residualsOI(oi, param, timeit=False):
     """
     tt = time.time()
     res = np.array([])
+    
+    if type(oi)==list:
+        for i,o in enumerate(oi):
+            res = np.append(res, residualsOI(o, param, timeit=timeit))
+        return res
+    
     if 'fit' in oi:
         fit = oi['fit']
     else:
         fit = {'obs':[]}
 
-    if type(oi)==list:
-        for o in oi:
-            res = np.append(res, residualsOI(o, param, timeit=timeit))
-        return res
     t0 = time.time()
     if 'DPHI' in fit['obs']:
         oi = computeDiffPhiOI(oi, param)
@@ -835,6 +880,17 @@ def residualsOI(oi, param, timeit=False):
         oi = computeNormFluxOI(oi, param)
         if timeit:
             print('residualsOI > normFlux %.3fms'%(1000*(time.time()-t0)))
+
+    if 'ignore telescope' in fit:
+        ignoreTelescope = fit['ignore telescope']
+    else:
+        ignoreTelescope = 'no way they would call a telescope that!'
+
+    if 'ignore baseline' in fit:
+        ignoreBaseline = fit['ignore baseline']
+    else:
+        ignoreBaseline = '**'
+        
     # -- compute model
     t0 = time.time()
     m = VmodelOI(oi, param, timeit=timeit)
@@ -850,7 +906,6 @@ def residualsOI(oi, param, timeit=False):
             'NFLUX':'NFLUX',}
     w = np.ones(oi['WL'].shape)
 
-
     if 'wl ranges' in fit:
         w = np.zeros(oi['WL'].shape)
         for WR in oi['fit']['wl ranges']:
@@ -858,6 +913,7 @@ def residualsOI(oi, param, timeit=False):
     w = np.bool_(w)
     t0 = time.time()
     for f in fit['obs']:
+        # -- for each observable:
         if f in ext.keys():
             if 'PHI' in f:
                 rf = lambda x: ((x + 180)%360 - 180)
@@ -865,29 +921,159 @@ def residualsOI(oi, param, timeit=False):
                 rf = lambda x: x
             # -- for each telescope / baseline / triangle
             for k in oi[ext[f]].keys():
-                mask = w[None,:]*~oi[ext[f]][k]['FLAG']
-                err = oi[ext[f]][k]['E'+f].copy()
-                if 'max error' in oi['fit'] and f in oi['fit']['max error']:
-                    # -- ignore data with large error bars
-                    mask *= (err<oi['fit']['max error'][f])
-                if 'min error' in fit and f in oi['fit']['min error']:
-                    # -- force error to a minimum value
-                    err = np.maximum(oi['fit']['min error'][f], err)
-                if 'mult error' in fit and f in oi['fit']['mult error']:
-                    # -- force error to a minimum value
-                    err *= oi['fit']['mult error'][f]
+                test = testTelescopes(k, ignoreTelescope) or testBaselines(k, ignoreBaseline)
+                if not test:
+                    mask = w[None,:]*~oi[ext[f]][k]['FLAG']
+                    err = oi[ext[f]][k]['E'+f].copy()
+                    if 'max error' in oi['fit'] and f in oi['fit']['max error']:
+                        # -- ignore data with large error bars
+                        mask *= (err<oi['fit']['max error'][f])
+                    if 'min error' in fit and f in oi['fit']['min error']:
+                        # -- force error to a minimum value
+                        err = np.maximum(oi['fit']['min error'][f], err)
+                    if 'mult error' in fit and f in oi['fit']['mult error']:
+                        # -- force error to a minimum value
+                        err *= oi['fit']['mult error'][f]
 
-                tmp = rf(oi[ext[f]][k][f][mask] -
-                         m[ext[f]][k][f][mask])/err[mask]
-                res = np.append(res, tmp.flatten())
+                    tmp = rf(oi[ext[f]][k][f][mask] -
+                             m[ext[f]][k][f][mask])/err[mask]
+                    res = np.append(res, tmp.flatten())
+                else:
+                    pass
+                    #print('ignoring', ext[f], k)
+                        
         else:
             print('WARNING: unknown observable:', f)
     if timeit:
         print('residualsOI > "res": %.3fms'%(1000*(time.time()-t0)))
         print('residualsOI > total: %.3fms'%(1000*(time.time()-tt)))
         print('-'*30)
-    #print('negativity', m['MODEL']['negativity'], len(res))
     res = np.append(res, m['MODEL']['negativity']*len(res))
+    return res
+
+def fitOI(oi, firstGuess, fitOnly=None, doNotFit=None, verbose=2,
+          maxfev=2000, ftol=1e-4, follow=None):
+    z = residualsOI(oi, firstGuess)*0.0
+    fit = dpfit.leastsqFit(residualsOI, oi, firstGuess, z, verbose=verbose,
+                           maxfev=maxfev, ftol=ftol, fitOnly=fitOnly,
+                           doNotFit=doNotFit, follow=follow)
+    return fit
+
+def bootstrapFitOI(oi, firstguess, N=None, fitOnly=None, doNotFit=None, maxfev=2000, ftol=1e-4,
+                   randomise='telescope or baseline', sigmaClipping=4.5):
+    """
+    """
+    # -- evaluate reduction in data
+    Nall, Nt, Nb = 0, 0, 0
+    for o in oi:
+        for x in o['fit']['obs']:
+            if x in 'NFLUX':
+                Nall += len(o['telescopes'])
+                Nt += len(o['telescopes']) - 1
+                Nb += len(o['telescopes'])
+            if x in ['|V|', 'DPHI', 'V2']:
+                Nall += len(o['baselines'])
+                Nt += (len(o['telescopes'])-1)*(len(o['telescopes'])-2)//2
+                Nb += len(o['baselines']) - 1
+            if x in ['T3PHI']:
+                Nall += len(o['OI_T3']) 
+                Nt += (len(o['telescopes'])-2)*(len(o['telescopes'])-3)//2
+                Nb += len(o['OI_T3']) - (len(o['telescopes'])-2)
+    #print('Ndata [all] = %d'%Nall)
+    #print('Ndata [-T ] = %d'%Nt)
+    #print('Ndata [-B ] = %d'%Nb)
+
+    if N is None:
+        N = 2*sum([len(o['telescopes'])**2 for o in oi])
+    res = []
+    if not type(randomise)==str:
+        randomise = 'all'
+        
+    if 'telescope' in randomise.lower():
+        P = int(round(len(oi) * Nall/Nt))
+    elif 'baseline' in randomise.lower():
+        P = int(round(len(oi) * Nall/Nb))
+    elif randomise.lower()=='telescope or baseline':
+        P = int(round(len(oi) * 2*Nall/(Nb+Nt)))
+    else:
+        P = len(oi)
+                
+    print('Drawing %d files per fit, out of %d. Randomisation by removing %s'%(P, len(oi), randomise))
+                
+    for i in range(N):
+        # -- make new sample of data
+        tmp = []
+        for k in range(P):
+            tmp.append(copy.deepcopy(oi[np.random.randint(len(oi))]))
+            # -- ignore part of the data
+            if 'telescope' in randomise.lower():
+                j = np.random.randint(len(tmp[-1]['telescopes']))
+                tmp[-1]['fit']['ignore telescope'] = tmp[-1]['telescopes'][j]
+                tmp[-1]['fit']['ignore baseline'] = 'not a baseline name'
+            elif 'baseline' in randomise.lower():
+                j = np.random.rand(len(tmp[-1]['baselines']))
+                tmp[-1]['fit']['ignore telescope'] = 'not a telescope name'
+                tmp[-1]['fit']['ignore baseline'] = tmp[-1]['baselines'][j]
+            elif randomise.lower()=='telescope or baseline':
+                if np.random.rand()<0.5:
+                    j = np.random.randint(len(tmp[-1]['telescopes']))
+                    tmp[-1]['fit']['ignore telescope'] = tmp[-1]['telescopes'][j]
+                    tmp[-1]['fit']['ignore baseline'] = 'not a baseline name'
+                else:
+                    j = np.random.randint(len(tmp[-1]['baselines']))
+                    tmp[-1]['fit']['ignore telescope'] = 'not a telescope name'
+                    tmp[-1]['fit']['ignore baseline'] = tmp[-1]['baselines'][j]
+        if i%10==0:
+            print('%s | bootstrap fit %d/%d'%(time.asctime(), i, N-1))
+        res.append(fitOI(tmp, firstguess, maxfev=maxfev, ftol=ftol, fitOnly=fitOnly,
+                           doNotFit=doNotFit, verbose=False))
+    return analyseBootstrap(res, sigmaClipping=sigmaClipping)
+
+def analyseBootstrap(Boot, sigmaClipping=None):
+    """
+    Boot: a list of fits (list of dict from dpfit.leastsqFit)
+    """
+    # -- allow to re-analyse bootstrapping results:
+    if type(Boot) == dict and 'all fits' in Boot.keys():
+        Boot = Boot['all fits']
+    
+    if sigmaClipping is None:
+        sigmaClipping = 4.5
+        
+    res = {'best':{}, 'uncer':{}, 'fitOnly':Boot[0]['fitOnly'], 
+           'all best':{}, 'all best ignored':{}, 'sigmaClipping':sigmaClipping,
+           'all fits':Boot}
+    mask = np.ones(len(Boot), dtype=bool)
+
+    # -- sigma clipping and global mask
+    for k in res['fitOnly']:
+        tmp = np.ones(len(Boot), dtype=bool)
+        for j in range(3):
+            x = np.array([b['best'][k] for b in Boot])
+            res['best'][k] = np.median(x[tmp])
+            res['uncer'][k] = np.percentile(x[tmp], 84) - np.percentile(x[tmp], 16)
+            tmp = np.abs(x-res['best'][k])<=sigmaClipping*res['uncer'][k]
+        mask *= tmp
+    
+    for k in res['fitOnly']:
+        for j in range(3):
+            x = np.array([b['best'][k] for b in Boot])
+            res['best'][k] = np.mean(x[mask])
+            res['uncer'][k] = np.std(x[mask])
+        res['all best'][k] = x[mask]
+        res['all best ignored'][k] = x[~mask]
+    
+    M = [[b['best'][k] for i,b in enumerate(Boot) if mask[i]] for k in res['fitOnly']]
+    res['cov'] = np.cov(M)
+    cor = np.sqrt(np.diag(res['cov']))
+    cor = cor[:,None]*cor[None,:]
+    res['cor'] = res['cov']/cor
+
+    res['mask'] = mask
+    res['covd'] = {ki:{kj:res['cov'][i,j] for j,kj in enumerate(res['fitOnly'])}
+                   for i,ki in enumerate(res['fitOnly'])}
+    res['cord'] = {ki:{kj:res['cor'][i,j] for j,kj in enumerate(res['fitOnly'])}
+                   for i,ki in enumerate(res['fitOnly'])}
     return res
 
 def sigmaClippingOI(oi, sigma=4, n=5, param=None):
@@ -971,8 +1157,9 @@ def showUV(oi, fig=0):
     return
 
 def showOI(oi, param=None, fig=1, obs=None, fov=None, pix=None, dx=0.0, dy=0.0,
-            checkImVis=False, showIm=False, imPow=1., imWl0=None, cmap='bone',
-            showChi2=True, wlMin=None, wlMax=None, allInOne=False, imMax=None, plotWidth=9):
+           checkImVis=False, showIm=False, imPow=1., imWl0=None, cmap='bone',
+           showChi2=True, wlMin=None, wlMax=None, allInOne=False, imMax=None,
+           plotWidth=9):
     """
     oi: result from oifits.loadOI
     param: dict of parameters for model (optional)
@@ -985,16 +1172,18 @@ def showOI(oi, param=None, fig=1, obs=None, fov=None, pix=None, dx=0.0, dy=0.0,
                 f = fig+i
             else:
                 f = fig
+                
             showOI(o, param, fig=fig, obs=obs, fov=fov, pix=pix, dx=dx, dy=dy,
                    checkImVis=checkImVis, showIm=showIm and i==len(oi)-1,
                    imWl0=imWl0, imPow=imPow, cmap=cmap, plotWidth=plotWidth,
-                   wlMin=wlMin, wlMax=wlMax, allInOne=allInOne, imMax=imMax)
+                   wlMin=wlMin, wlMax=wlMax, allInOne=allInOne, imMax=imMax,
+                   )
         return
     
     if param is None:
         showChi2=False
     plt.close(fig)
-    plt.figure(fig, figsize=(plotWidth,5))
+    plt.figure(fig, figsize=(plotWidth, 5))
 
     # -- user-defined wavelength range
     fit = {'wl ranges':[(min(oi['WL']), max(oi['WL']))]}
@@ -1003,6 +1192,16 @@ def showOI(oi, param=None, fig=1, obs=None, fov=None, pix=None, dx=0.0, dy=0.0,
     elif not 'wl ranges' in oi['fit']:
         oi['fit'].update(fit)
 
+    if 'ignore telescope' in oi['fit']:
+        ignoreTelescope = oi['fit']['ignore telescope']
+    else:
+        ignoreTelescope = 'no way they would call a telescope that!'
+
+    if 'ignore baseline' in oi['fit']:
+        ignoreBaseline = oi['fit']['ignore baseline']
+    else:
+        ignoreBaseline = '**'
+        
     w = np.zeros(oi['WL'].shape)
     for WR in oi['fit']['wl ranges']:
         w += (oi['WL']>=WR[0])*(oi['WL']<=WR[1])
@@ -1113,14 +1312,17 @@ def showOI(oi, param=None, fig=1, obs=None, fov=None, pix=None, dx=0.0, dy=0.0,
                     err *= oi['fit']['mult error'][data[l]['var']]
 
                 # -- show data
+                test = testTelescopes(k, ignoreTelescope) or testBaselines(k, ignoreBaseline)
                 plt.step(X(oi, j)[mask], y[mask],
-                        '-k', alpha=0.5, label=k if j==0 else '', where='mid')
+                         '-', color='k' if not test else '0.5',
+                         alpha=0.5, label=k if j==0 else '', where='mid')
                 if not ign is None:
                     # -- show ignored data
                     plt.plot(X(oi,j)[ign], y[ign], 'xy', alpha=0.5)
 
                 plt.fill_between(X(oi, j)[mask], y[mask]+err[mask], y[mask]-err[mask],
-                                 step='mid', color='k', alpha=0.1)
+                                 step='mid', color='k',
+                                 alpha=0.1 if not test else 0.05)
 
                 maskp = mask*(oi['WL']>=wlMin)*(oi['WL']<=wlMax)
                 ymin = min(ymin, np.percentile((y-err)[maskp], 1))
@@ -1135,7 +1337,8 @@ def showOI(oi, param=None, fig=1, obs=None, fov=None, pix=None, dx=0.0, dy=0.0,
                     chi2 += np.mean((y-ym)[maskc2]**2/err[maskc2]**2
                                 /len(oi[data[l]['ext']][k]['MJD']))
                     plt.step(X(m,j)[maskc2], ym[maskc2],
-                            '-r', alpha=0.4, where='mid')
+                            '-r', alpha=0.4 if not test else 0.2,
+                             where='mid')
                     ymin = min(ymin, np.min(ym[maskp]))
                     ymax = max(ymax, np.max(ym[maskp]))
 
@@ -1193,7 +1396,7 @@ def showOI(oi, param=None, fig=1, obs=None, fov=None, pix=None, dx=0.0, dy=0.0,
         c += 1
     plt.subplots_adjust(hspace=0, wspace=0.2, left=0.06, right=0.99)
     plt.suptitle(oi['filename'], fontsize=10)
-
+    
     if showIm and not param is None:
         showModel(oi, param, m=m, fig=fig+1, imPow=imPow, cmap=cmap, plotWidth=plotWidth,
                 fov=fov, pix=pix, dx=dx, dy=dy, imWl0=imWl0, imMax=imMax)

@@ -60,14 +60,23 @@ def loadOI(filename, insname=None, with_header=False, medfilt=False, tellurics=N
 
     print('*'*4, res['filename'],'insname=', insname,  '*'*10)
 
-    OPL = {}
-    for i in range(4):
-        T = h[0].header['ESO ISS CONF STATION%d'%(i+1)]
-        opl = 0.5*(h[0].header['ESO DEL DLT%d OPL START'%(i+1)] +
-                   h[0].header['ESO DEL DLT%d OPL END'%(i+1)])
-        opl += h[0].header['ESO ISS CONF A%dL'%(i+1)]
-        OPL[T] = opl
-    res['OPL'] = OPL
+    try:
+        # -- VLTI 4T specific
+        OPL = {}
+        for i in range(4):
+            T = h[0].header['ESO ISS CONF STATION%d'%(i+1)]
+            opl = 0.5*(h[0].header['ESO DEL DLT%d OPL START'%(i+1)] +
+                       h[0].header['ESO DEL DLT%d OPL END'%(i+1)])
+            opl += h[0].header['ESO ISS CONF A%dL'%(i+1)]
+            OPL[T] = opl
+        res['OPL'] = OPL
+        T = np.mean([h[0].header['ESO ISS TEMP TUN%d'%i] for i in [1,2,3,4]]) # T in C
+        P = h[0].header['ESO ISS AMBI PRES'] # pressure in mbar
+        H = h[0].header['ESO ISS AMBI RHUM'] # relative humidity: TODO outside == inside probably no ;(
+        #print('T(C), P(mbar), H(%)', T, P, H)
+        res['n_lab'] = n_JHK(res['WL'].astype(np.float64), 273.15+T, P, H)
+    except:
+        pass
 
     for hdu in h:
         if 'EXTNAME' in hdu.header and hdu.header['EXTNAME']=='OI_WAVELENGTH' and\
@@ -75,11 +84,6 @@ def loadOI(filename, insname=None, with_header=False, medfilt=False, tellurics=N
             res['WL'] = hdu.data['EFF_WAVE']*1e6
             print('WAVELENGTH:', len(res['WL']))
 
-    T = np.mean([h[0].header['ESO ISS TEMP TUN%d'%i] for i in [1,2,3,4]]) # T in C
-    P = h[0].header['ESO ISS AMBI PRES'] # pressure in mbar
-    H = h[0].header['ESO ISS AMBI RHUM'] # relative humidity: TODO outside == inside probably no ;(
-    #print('T(C), P(mbar), H(%)', T, P, H)
-    res['n_lab'] = n_JHK(res['WL'].astype(np.float64), 273.15+T, P, H)
     #res['n_lab'] = n_JHK(res['WL'].astype(np.float64))#, 273.15+T, P, H)
 
     oiarray = dict(zip(h['OI_ARRAY'].data['STA_INDEX'],
@@ -298,14 +302,17 @@ def loadOI(filename, insname=None, with_header=False, medfilt=False, tellurics=N
                                                         ~np.isfinite(res['OI_T3'][k]['T3AMP']))
                 res['OI_T3'][k]['FLAG'] = np.logical_or(res['OI_T3'][k]['FLAG'],
                                                         ~np.isfinite(res['OI_T3'][k]['ET3AMP']))
-
-
+                
+    
+        
     key = 'OI_VIS'
     if res['OI_VIS']=={}:
         res.pop('OI_VIS')
         key = 'OI_VIS2'
     if res['OI_VIS2']=={}:
         res.pop('OI_VIS2')
+    if res['OI_FLUX']=={}:
+        res.pop('OI_FLUX')
     if res['OI_T3']=={}:
         res.pop('OI_T3')
     else:
@@ -318,6 +325,17 @@ def loadOI(filename, insname=None, with_header=False, medfilt=False, tellurics=N
                 w1.append(np.argmin(np.abs(res[key][t[1]]['MJD']-mjd)))
                 w2.append(np.argmin(np.abs(res[key][t[2]]['MJD']-mjd)))
             res['OI_T3'][k]['formula'] = s, t, w0, w1, w2
+
+    if 'OI_FLUX' in res:
+        res['telescopes'] = sorted(list(res['OI_FLUX'].keys()))
+    else:
+        res['telescopes'] = []
+        for k in res[key].keys():
+            res['telescopes'].append(k[:len(k)//2])
+            res['telescopes'].append(k[len(k)//2:])
+        res['telescopes'] = sorted(list(set(res['telescopes'])))
+    res['baselines'] = sorted(list(res[key].keys()))
+        
     if not 'TELLURICS' in res.keys():
         res['TELLURICS'] = np.ones(res['WL'].shape)
     if not tellurics is None:
@@ -329,6 +347,7 @@ def loadOI(filename, insname=None, with_header=False, medfilt=False, tellurics=N
         else:
             kernel_size = None
         res = medianFilt(res, kernel_size)
+
     return res
 
 def medianFilt(oi, kernel_size=None):

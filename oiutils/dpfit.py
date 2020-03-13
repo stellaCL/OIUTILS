@@ -4,6 +4,7 @@ from numpy import linalg
 import time
 from matplotlib import pyplot as plt
 
+
 """
 IDEA: fit Y = F(X,A) where A is a dictionnary describing the
 parameters of the function.
@@ -410,6 +411,12 @@ def leastsqFit(func, x, params, y, err=None, fitOnly=None,
         if not np.isscalar(reducedChi2):
             reducedChi2 = np.mean(reducedChi2)
 
+    if normalizedUncer:
+        try:
+            cov *= reducedChi2
+        except:
+            pass
+
     # -- uncertainties:
     uncer = {}
     for k in pfix.keys():
@@ -421,8 +428,6 @@ def leastsqFit(func, x, params, y, err=None, fitOnly=None,
                 uncer[k]= -1
             else:
                 uncer[k]= np.sqrt(np.abs(np.diag(cov)[i]))
-                if normalizedUncer:
-                    uncer[k] *= np.sqrt(reducedChi2)
 
     if verbose:
         print('-'*30)
@@ -459,24 +464,26 @@ def leastsqFit(func, x, params, y, err=None, fitOnly=None,
                 print(formatS%k , pfix[k], ',', end='')
                 print('# +/-', uncer[k])
         print('}') # end of the dictionnary
+        
     # -- result:
     if fullOutput:
-        if normalizedUncer:
-            try:
-                cov *= reducedChi2
-            except:
-                pass
         cor = np.sqrt(np.diag(cov))
         cor = cor[:,None]*cor[None,:]
         cor = cov/cor
-        pfix={'best':pfix, 'uncer':uncer,
-              'chi2':reducedChi2, 'model':model,
-              'cov':cov, 'fitOnly':fitOnly,
-              'epsfcn':epsfcn, 'ftol':ftol,
-              'info':info, 'cor':cor, 'x':x, 'y':y, 'func':func,
-              'doNotFit':doNotFit}
-    if type(verbose)==int and verbose>1:
-        dispCor(pfix)
+        pfix= {'best':pfix, 'uncer':uncer,
+               'chi2':reducedChi2, 'model':model,
+               'cov':cov, 'fitOnly':fitOnly,
+               'epsfcn':epsfcn, 'ftol':ftol,
+               'info':info, 'cor':cor, 'x':x, 'y':y, 'func':func,
+               'doNotFit':doNotFit,
+               'covd':{ki:{kj:cov[i,j] for j,kj in enumerate(fitOnly)}
+                         for i,ki in enumerate(fitOnly)},
+               'cord':{ki:{kj:cor[i,j] for j,kj in enumerate(fitOnly)}
+                         for i,ki in enumerate(fitOnly)},
+               'normalized uncertainties':normalizedUncer
+        }
+        if type(verbose)==int and verbose>1:
+            dispCor(pfix)
     return pfix
 
 def randomParam(fit, N=None, x=None):
@@ -772,7 +779,22 @@ def _fitFunc2(x, *pfit, verbose=True, follow=[], errs=None):
 
     return res
 
+def errorEllipse(fit, p1, p2, n=100):
+    """
+    fit is a result from leastsqFit (dict)
+    p1, p2 are parameters name (str)
+    n number of point in ellipse (int, default 100)
 
+    returns ellipse of errors (x1, x2), computed from the covariance. The n values are centered 
+    around fit['best']['p1'] and fit['best']['p2']
+    """
+    i1 = fit['fitOnly'].index(p1)
+    i2 = fit['fitOnly'].index(p2)
+    t = np.linspace(0,2*np.pi,n)  
+    sMa, sma, a = _ellParam(fit['cov'][i1,i1], fit['cov'][i2,i2], fit['cov'][i1,i2])                         
+    X,Y = sMa*np.cos(t), sma*np.sin(t)                                                                 
+    X,Y = X*np.cos(a)+Y*np.sin(a),-X*np.sin(a)+Y*np.cos(a)  
+    return fit['best'][p1]+X, fit['best'][p2]+Y
 
 def _ellParam(sA2, sB2, sAB):
     """
@@ -934,3 +956,6 @@ def plotCovMatrix(fit, fig=0):
             except:
                 pass
     return
+
+
+    
