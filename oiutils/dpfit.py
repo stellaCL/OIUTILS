@@ -4,7 +4,6 @@ from numpy import linalg
 import time
 from matplotlib import pyplot as plt
 
-
 """
 IDEA: fit Y = F(X,A) where A is a dictionnary describing the
 parameters of the function.
@@ -464,25 +463,27 @@ def leastsqFit(func, x, params, y, err=None, fitOnly=None,
                 print(formatS%k , pfix[k], ',', end='')
                 print('# +/-', uncer[k])
         print('}') # end of the dictionnary
-        
+
     # -- result:
     if fullOutput:
         cor = np.sqrt(np.diag(cov))
         cor = cor[:,None]*cor[None,:]
         cor = cov/cor
-        pfix= {'best':pfix, 'uncer':uncer,
+        pfix= {#'func':func,
+                'best':pfix, 'uncer':uncer,
                'chi2':reducedChi2, 'model':model,
                'cov':cov, 'fitOnly':fitOnly,
                'epsfcn':epsfcn, 'ftol':ftol,
-               'info':info, 'cor':cor, 'x':x, 'y':y, 'func':func,
+               'info':info, 'cor':cor, 'x':x, 'y':y,
                'doNotFit':doNotFit,
                'covd':{ki:{kj:cov[i,j] for j,kj in enumerate(fitOnly)}
                          for i,ki in enumerate(fitOnly)},
                'cord':{ki:{kj:cor[i,j] for j,kj in enumerate(fitOnly)}
                          for i,ki in enumerate(fitOnly)},
-               'normalized uncertainties':normalizedUncer
+               'normalized uncertainties':normalizedUncer,
+               'maxfev':maxfev,
         }
-        if type(verbose)==int and verbose>1:
+        if type(verbose)==int and verbose>1 and np.size(cor)>1:
             dispCor(pfix)
     return pfix
 
@@ -534,6 +535,12 @@ def bootstrap(func, x, params, y, err=None, fitOnly=None,
     """
     if Nboot==None:
         Nboot = 10*len(x)
+
+    if 'fitOnly' in params and fitOnly is None:
+        fitOnly = params['fitOnly']
+    if 'best' in params:
+        params = params['best']
+
     # first fit is the "normal" one
     fits = [leastsqFit(func, x, params, y,
                                      err=err, fitOnly=fitOnly, verbose=False,
@@ -625,10 +632,10 @@ def _fitFunc(pfit, pfitKeys, x, y, err=None, func=None, pfix=None, verbose=False
 
     if verbose and time.time()>(verboseTime+5):
         verboseTime = time.time()
-        print('[dpfit]', time.asctime(), '%5d'%Ncalls,end='')
+        print('[dpfit]', time.asctime(), '%5d'%Ncalls,end=' ')
         try:
             chi2=(res**2).sum/(len(res)-len(pfit)+1.0)
-            print('CHI2: %6.4e'%chi2,end='')
+            print('CHI2: %6.4e'%chi2,end=' ')
         except:
             # list of elements
             chi2 = 0
@@ -785,15 +792,15 @@ def errorEllipse(fit, p1, p2, n=100):
     p1, p2 are parameters name (str)
     n number of point in ellipse (int, default 100)
 
-    returns ellipse of errors (x1, x2), computed from the covariance. The n values are centered 
+    returns ellipse of errors (x1, x2), computed from the covariance. The n values are centered
     around fit['best']['p1'] and fit['best']['p2']
     """
     i1 = fit['fitOnly'].index(p1)
     i2 = fit['fitOnly'].index(p2)
-    t = np.linspace(0,2*np.pi,n)  
-    sMa, sma, a = _ellParam(fit['cov'][i1,i1], fit['cov'][i2,i2], fit['cov'][i1,i2])                         
-    X,Y = sMa*np.cos(t), sma*np.sin(t)                                                                 
-    X,Y = X*np.cos(a)+Y*np.sin(a),-X*np.sin(a)+Y*np.cos(a)  
+    t = np.linspace(0,2*np.pi,n)
+    sMa, sma, a = _ellParam(fit['cov'][i1,i1], fit['cov'][i2,i2], fit['cov'][i1,i2])
+    X,Y = sMa*np.cos(t), sma*np.sin(t)
+    X,Y = X*np.cos(a)+Y*np.sin(a),-X*np.sin(a)+Y*np.cos(a)
     return fit['best'][p1]+X, fit['best'][p2]+Y
 
 def _ellParam(sA2, sB2, sAB):
@@ -825,7 +832,7 @@ def dispCor(fit, ndigit=2):
     fmt = '%%%ds'%nmax
     fmt = '%3d:'+fmt
     fmtd = '%'+'%d'%(ndigit+3)+'.'+'%d'%ndigit+'f'
-    print('|Correlations| ', end=' ')
+    print('Correlations ', end=' ')
     print('\033[45m>=.9\033[0m', end=' ')
     print('\033[41m>=.8\033[0m', end=' ')
     print('\033[43m>=.7\033[0m', end=' ')
@@ -956,6 +963,3 @@ def plotCovMatrix(fit, fig=0):
             except:
                 pass
     return
-
-
-    

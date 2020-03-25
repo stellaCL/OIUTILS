@@ -2,7 +2,8 @@ import numpy as np
 from astropy.io import fits
 import scipy.signal
 
-def loadOI(filename, insname=None, with_header=False, medfilt=False, tellurics=None):
+def loadOI(filename, insname=None, targname=None,
+           with_header=False, medfilt=False, tellurics=None):
     """
     load OIFITS "filename" and return a dict:
 
@@ -16,7 +17,8 @@ def loadOI(filename, insname=None, with_header=False, medfilt=False, tellurics=N
 
     can contains other things, *but None can start with 'OI_'*:
     'filename': name of the file
-    'insname': name of the instrument
+    'insname': name of the instrument (default: all of them)
+    'targname': name of the instrument (default: single one if only one)
     'header': full header of the file if "with_header" is True (default False)
 
     All variables are keyed by the name of the baseline (or triplet). e.g.:
@@ -27,9 +29,18 @@ def loadOI(filename, insname=None, with_header=False, medfilt=False, tellurics=N
     many dictionnary as they are instruments (either single dict for single
     instrument, of list of dictionnary).
 
-    limitations: assumes that there is only one target per file
-
     """
+    if type(filename)==list:
+        res = []
+        for f in filename:
+            tmp = loadOI(f, insname=insname, with_header=with_header,
+                         medfilt=medfilt, tellurics=tellurics, targname=targname)
+            if type(tmp)==list:
+                res.extend(tmp)
+            elif type(tmp)==dict:
+                res.append(tmp)
+        return res
+
     res = {}
     h = fits.open(filename)
 
@@ -38,27 +49,35 @@ def loadOI(filename, insname=None, with_header=False, medfilt=False, tellurics=N
     for hdu in h:
         if 'EXTNAME' in hdu.header and hdu.header['EXTNAME']=='OI_WAVELENGTH':
             instruments.append(hdu.header['INSNAME'])
+        if 'EXTNAME' in hdu.header and hdu.header['EXTNAME']=='OI_TARGET':
+            targets = {hdu.data['TARGET'][i].strip():hdu.data['TARGET_ID'][i] for
+                        i in range(len(hdu.data['TARGET']))}
+    if targname is None and len(targets)==1:
+        targname = list(targets.keys())[0]
+    assert targname in targets.keys(), 'unknown target "'+str(targname)+'", '+\
+        'should be in ['+', '.join(['"'+t+'"' for t in list(targets.keys())])+']'
+
     if insname is None:
         if len(instruments)==1:
             insname = instruments[0]
         else:
             h.close()
             print('WARNING: insname not specified, using results for %s'%str(instruments))
-
             # -- return list: one dict for each insname
             return [loadOI(filename, insname=ins, with_header=with_header, medfilt=medfilt) for ins in instruments]
 
-    if not insname in instruments:
-        print('ERROR: could not find instrument "'+insname+'" in', end=' ')
-        print(instruments)
-        return None
+    assert insname in instruments, 'unknown instrument "'+insname+'", '+\
+        'should be in ['+', '.join(['"'+t+'"' for t in instruments])+']'
 
     res['insname'] = insname
     res['filename'] = filename
+    res['targname'] = targname
     if with_header:
         res['header'] = h[0].header
 
-    print('*'*4, res['filename'],'insname=', insname,  '*'*10)
+    print('*'*4, res['filename'], ', '
+          'insname:', '"'+insname+'"', ','
+          'targname:', '"'+targname+'"', '*'*10)
 
     try:
         # -- VLTI 4T specific
@@ -105,7 +124,7 @@ def loadOI(filename, insname=None, with_header=False, medfilt=False, tellurics=N
             print('OI_FLUX', set(sta1), end=' ')
             showDims=True
             for k in set(sta1):
-                w = np.array(sta1)==k
+                w = (np.array(sta1)==k)*(hdu.data['TARGET_ID']==targets[targname])
                 res['OI_FLUX'][k] = {'FLUX':hdu.data['FLUX'][w,:],
                                     'EFLUX':hdu.data['FLUXERR'][w,:],
                                     'FLAG':hdu.data['FLAG'][w,:],
@@ -124,7 +143,7 @@ def loadOI(filename, insname=None, with_header=False, medfilt=False, tellurics=N
             print('OI_VIS2', set(sta2), end=' ')
             showDims=True
             for k in set(sta2):
-                w = np.array(sta2)==k
+                w = (np.array(sta2)==k)*(hdu.data['TARGET_ID']==targets[targname])
                 if k in res['OI_VIS2']:
                     for k1, k2 in [('V2', 'VIS2DATA'), ('EV2', 'VIS2ERR')]:
                         res['OI_VIS2'][k][k1] = np.append(res['OI_VIS2'][k][k1],
@@ -173,7 +192,7 @@ def loadOI(filename, insname=None, with_header=False, medfilt=False, tellurics=N
             print('OI_VIS', set(sta2), end=' ')
             showDims = True
             for k in set(sta2):
-                w = np.array(sta2)==k
+                w = (np.array(sta2)==k)*(hdu.data['TARGET_ID']==targets[targname])
                 if k in res['OI_VIS']:
                     for k1, k2 in [('|V|', 'VIS2AMP'), ('E|V|', 'VISAMPERR'),
                                     ('PHI', 'VISPHI'), ('EPHI', 'VISPHIERR')]:
@@ -228,7 +247,7 @@ def loadOI(filename, insname=None, with_header=False, medfilt=False, tellurics=N
             # -- limitation: assumes all telescope have same number of char!
             n = len(sta3[0])//3 # number of char per telescope
             for k in set(sta3):
-                w = np.array(sta3)==k
+                w = (np.array(sta3)==k)*(hdu.data['TARGET_ID']==targets[targname])
                 # -- find triangles
                 t, s = [], []
                 # -- first baseline
@@ -302,9 +321,9 @@ def loadOI(filename, insname=None, with_header=False, medfilt=False, tellurics=N
                                                         ~np.isfinite(res['OI_T3'][k]['T3AMP']))
                 res['OI_T3'][k]['FLAG'] = np.logical_or(res['OI_T3'][k]['FLAG'],
                                                         ~np.isfinite(res['OI_T3'][k]['ET3AMP']))
-                
-    
-        
+
+
+
     key = 'OI_VIS'
     if res['OI_VIS']=={}:
         res.pop('OI_VIS')
@@ -335,7 +354,7 @@ def loadOI(filename, insname=None, with_header=False, medfilt=False, tellurics=N
             res['telescopes'].append(k[len(k)//2:])
         res['telescopes'] = sorted(list(set(res['telescopes'])))
     res['baselines'] = sorted(list(res[key].keys()))
-        
+
     if not 'TELLURICS' in res.keys():
         res['TELLURICS'] = np.ones(res['WL'].shape)
     if not tellurics is None:

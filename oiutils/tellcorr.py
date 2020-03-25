@@ -4,11 +4,12 @@ import matplotlib.pyplot as plt
 from astropy.io import fits
 import scipy.interpolate
 import sys, os
-import pickle
 import time
 
-import oiutils
-from oiutils import dpfit
+try:
+    from oiutils import dpfit
+except:
+    import dpfit
 
 this_dir, this_filename = os.path.split(__file__)
 
@@ -40,9 +41,6 @@ tran0 = f[1].data['EMISSION'][0].copy()
 tran80 += np.interp(lbda, lbda0[::50], tran0[::50])
 f.close()
 
-# f = open('tell_mod.pickle', 'wb')
-# pickle.dump((lbda0, tran20, tran80), f)
-# f.close()
 
 
 def Ftran(l, param):
@@ -119,11 +117,13 @@ def Ftran(l, param):
         tmpT *= scipy.interpolate.interp1d([param[x] for x in X], [param[y] for y in Y], kind='cubic', fill_value='extrapolate')(tmpL)
     return np.interp(l, tmpL, tmpT)
 
-def gravity(filename, quiet=True, save=True, wlmin=None, wlmax=None, MR=False, avoid=None, fig=1):
+def gravity(filename, quiet=True, save=True, wlmin=None, wlmax=None, avoid=None, fig=None):
     """
     avoid: list of tuple of wlmin, wlmax to avoid in the fit (known) line
     """
     # -- init plot ----------------------------------------
+    if not fig is None:
+        quiet = False
     if not quiet:
         if fig is None:
             fig = 1
@@ -134,6 +134,14 @@ def gravity(filename, quiet=True, save=True, wlmin=None, wlmax=None, MR=False, a
 
     # -- LOAD DATA -------------------------------------------------
     f = fits.open(filename)
+    if 'MED' in f[0].header['ESO INS SPEC RES']:
+        MR = True
+    elif 'HIGH' in f[0].header['ESO INS SPEC RES']:
+        MR = False
+    else:
+        print('Nothing to do for resolution', f[0].header['ESO INS SPEC RES'])
+        return
+
     #f.info()
     wl = f[4].data['EFF_WAVE']*1e6
     if len(wl)==5:
@@ -157,14 +165,17 @@ def gravity(filename, quiet=True, save=True, wlmin=None, wlmax=None, MR=False, a
 
     # -- fitting domain:
     if wlmin is None:
-        wlmin = 2.03
+        wlmin = 1.9
     if wlmax is None:
-        wlmax = 2.4
+        wlmax = 2.5
     # -- avoid some known lines
     w = (wl>wlmin)*(wl<wlmax)
     if avoid is None:
-        w *= (np.abs(wl-2.06)>0.002)*(np.abs(wl-2.1665)>0.0015)*(np.abs(wl-2.089)>0.0015)*(np.abs(wl-2.1375)>0.0015)*(np.abs(wl-2.144)>0.0015)
-        w *= np.abs(wl-2.206)>0.0015
+        c = 3 if MR else 1
+        # -- 2.058: HeI
+        # -- 2.167: Br Gamma
+        w = (np.abs(wl-2.058)>c*0.002)*(np.abs(wl-2.1665)>c*0.0015)
+        #w *= np.abs(wl-2.206)>c*0.0015 # ???
     else:
         for _wlmin, _wlmax in avoid:
             w *= (wl<=_wlmin)+(wl>=_wlmax)
@@ -180,7 +191,7 @@ def gravity(filename, quiet=True, save=True, wlmin=None, wlmax=None, MR=False, a
              'p_2.09913':0.8, 'p_2.11905':1.0, 'p_2.12825':1.0, 'p_2.1691':1.0, }
 
     # -- spectrum model using spline nodes
-    for i,x in enumerate(np.linspace(wl[w].min(), wl[w].max(), 10 if MR else 30)):
+    for i,x in enumerate(np.linspace(wl[w].min(), wl[w].max(), 12 if MR else 35)):
         test = True
         # -- makes sure the node is not in an avoidance zone:
         if not avoid is None:
@@ -227,14 +238,6 @@ def gravity(filename, quiet=True, save=True, wlmin=None, wlmax=None, MR=False, a
 
     p = {k:fit['best'][k] for k in fit['best'].keys() if not 'S' in k}
     if save:
-        # -- SAVE DATA IN PICKLED FILE ----------------------------------------
-        # -- wl, raw spectrum, model=spectrum*telluric, telluric
-        # -- actual spectrum is then "raw spectrum"/"telluric" (1/3)
-        #f = open(filename.replace('.fits', '_spectrum.pickle'), 'wb')
-        # -- wavelength, raw spectrum, continuum*tellurics, tellurics
-        #pickle.dump((wl, sp, Ftran(wl, fit['best']), Ftran(wl, p)), f)
-        #f.close()
-
         # -- SAVE telluric as fits extension in fits file
         f = fits.open(filename, mode='update')
         if 'TELLURICS' in f:
@@ -243,7 +246,7 @@ def gravity(filename, quiet=True, save=True, wlmin=None, wlmax=None, MR=False, a
         c2 = fits.Column(name='RAW_SPEC', array=sp, format='D')
         c3 = fits.Column(name='TELL_TRANS', array=Ftran(wl, p), format='D')
         c4 = fits.Column(name='CORR_SPEC', array=sp/Ftran(wl, fit['best']), format='D')
-        
+
         hdu = fits.BinTableHDU.from_columns([c1, c2, c3, c4])
         hdu.header['EXTNAME'] = 'TELLURICS'
         hdu.header['ORIGIN'] = 'https://github.com/amerand/OIUTILS'
