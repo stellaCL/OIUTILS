@@ -1039,7 +1039,7 @@ def residualsOI(oi, param, timeit=False):
 
 def fitOI(oi, firstGuess, fitOnly=None, doNotFit=None, verbose=2,
           maxfev=2000, ftol=1e-4, follow=None, prior=None,
-          randomise=False, i=-1):
+          randomise=False, iter=-1):
     """
     oi: a dict of list of dicts returned by oifits.loadOI
 
@@ -1087,9 +1087,9 @@ def fitOI(oi, firstGuess, fitOnly=None, doNotFit=None, verbose=2,
         tmp = oi
     else:
         # -- randomise data, for bootstrapping
-        if i>0:
-            print('iteration', i)
-        tmp = randomiseData(oi, randomise=randomise, verbose=i>0)
+        #if iter>0:
+        #    print('iteration', iter, time.asctime())
+        tmp = randomiseData(oi, randomise=randomise, verbose=False)
     z = residualsOI(tmp, firstGuess)*0.0
     if fitOnly is None and doNotFit is None:
         fitOnly = list(firstGuess.keys())
@@ -1119,12 +1119,12 @@ def randomiseData(oi, randomise='telescope or baseline', P=None, verbose=False):
                     Nt += (len(o['telescopes'])-2)*(len(o['telescopes'])-3)//2
                     Nb += len(o['OI_T3']) - (len(o['telescopes'])-2)
 
-        if 'telescope' in str(randomise).lower():
+        if str(randomise).lower()=='telescope or baseline':
+            P = int(round(len(oi) * 2*Nall/(Nb+Nt)))
+        elif 'telescope' in str(randomise).lower():
             P = int(round(len(oi) * Nall/Nt))
         elif 'baseline' in str(randomise).lower():
             P = int(round(len(oi) * Nall/Nb))
-        elif str(randomise).lower()=='telescope or baseline':
-            P = int(round(len(oi) * 2*Nall/(Nb+Nt)))
         else:
             P = len(oi)
     tmp = []
@@ -1132,19 +1132,7 @@ def randomiseData(oi, randomise='telescope or baseline', P=None, verbose=False):
         i = np.random.randint(len(oi))
         tmp.append(copy.deepcopy(oi[i]))
         # -- ignore part of the data
-        if 'telescope' in str(randomise).lower():
-            j = np.random.randint(len(tmp[-1]['telescopes']))
-            tmp[-1]['fit']['ignore telescope'] = tmp[-1]['telescopes'][j]
-            tmp[-1]['fit']['ignore baseline'] = 'not a baseline name'
-            if verbose:
-                print('   ', i, 'ignore telescope', tmp[-1]['telescopes'][j])
-        elif 'baseline' in str(randomise).lower():
-            j = np.random.randint(len(tmp[-1]['baselines']))
-            tmp[-1]['fit']['ignore telescope'] = 'not a telescope name'
-            tmp[-1]['fit']['ignore baseline'] = tmp[-1]['baselines'][j]
-            if verbose:
-                print('   ', i, 'ignore baseline', tmp[-1]['baselines'][j])
-        elif str(randomise).lower()=='telescope or baseline':
+        if str(randomise).lower()=='telescope or baseline':
             if np.random.rand()<0.5:
                 j = np.random.randint(len(tmp[-1]['telescopes']))
                 tmp[-1]['fit']['ignore telescope'] = tmp[-1]['telescopes'][j]
@@ -1157,6 +1145,18 @@ def randomiseData(oi, randomise='telescope or baseline', P=None, verbose=False):
                 tmp[-1]['fit']['ignore baseline'] = tmp[-1]['baselines'][j]
                 if verbose:
                     print('   ', i, 'ignore baseline', tmp[-1]['baselines'][j])
+        elif 'telescope' in str(randomise).lower():
+            j = np.random.randint(len(tmp[-1]['telescopes']))
+            tmp[-1]['fit']['ignore telescope'] = tmp[-1]['telescopes'][j]
+            tmp[-1]['fit']['ignore baseline'] = 'not a baseline name'
+            if verbose:
+                print('   ', i, 'ignore telescope', tmp[-1]['telescopes'][j])
+        elif 'baseline' in str(randomise).lower():
+            j = np.random.randint(len(tmp[-1]['baselines']))
+            tmp[-1]['fit']['ignore telescope'] = 'not a telescope name'
+            tmp[-1]['fit']['ignore baseline'] = tmp[-1]['baselines'][j]
+            if verbose:
+                print('   ', i, 'ignore baseline', tmp[-1]['baselines'][j])
     return tmp
 
 def bootstrapFitOI(oi, fit, N=None, fitOnly=None, doNotFit=None, maxfev=2000,
@@ -1176,7 +1176,7 @@ def bootstrapFitOI(oi, fit, N=None, fitOnly=None, doNotFit=None, maxfev=2000,
 
     kwargs = {'maxfev':maxfev, 'ftol':ftol, 'verbose':False,
               'randomise':randomise, 'fitOnly':fitOnly, 'doNotFit':doNotFit,
-               'prior':prior}
+              'prior':prior, 'iter':-1}
 
     res = []
     if multi:
@@ -1189,7 +1189,7 @@ def bootstrapFitOI(oi, fit, N=None, fitOnly=None, doNotFit=None, maxfev=2000,
         t = time.time()
         pool = multiprocessing.Pool(np)
         for i in range(np):
-            kwargs['i'] = i
+            kwargs['iter'] = i
             res.append(pool.apply_async(fitOI, (oi, firstGuess, ), kwargs))
         pool.close()
         pool.join()
@@ -1199,8 +1199,8 @@ def bootstrapFitOI(oi, fit, N=None, fitOnly=None, doNotFit=None, maxfev=2000,
 
         t = time.time()
         pool = multiprocessing.Pool(np)
-        for i in range(N-1):
-            kwargs['i'] = i
+        for i in range(N-np):
+            kwargs['iter'] = np+i
             res.append(pool.apply_async(fitOI, (oi,firstGuess, ), kwargs))
         pool.close()
         pool.join()
@@ -1213,7 +1213,7 @@ def bootstrapFitOI(oi, fit, N=None, fitOnly=None, doNotFit=None, maxfev=2000,
         print('one fit takes ~%.2fs'%t)
         t = time.time()
         for i in range(N-1):
-            kwargs['i'] = i
+            kwargs['iter'] = i
             if i%10==0:
                 print('%s | bootstrap fit %d/%d'%(time.asctime(), i, N-1))
             res.append(fitOI(oi, firstGuess, **kwargs))
@@ -1281,6 +1281,9 @@ def analyseBootstrap(Boot, sigmaClipping=4.5, verbose=2):
     res['cord'] = {ki:{kj:res['cor'][i,j] for j,kj in enumerate(res['fitOnly'])}
                    for i,ki in enumerate(res['fitOnly'])}
     if verbose:
+        if not sigmaClipping is None:
+            print('using %d fits out of %d (sigma clipping %.2f)'%(len(res['fitOnly']),
+                    np.sum(mask), sigmaClipping))
         ns = max([len(k) for k in res['best'].keys()])
         print('{', end='')
         for k in sorted(res['best'].keys()):
@@ -1863,12 +1866,17 @@ def _callbackAxes(ax):
         print('could not find axes')
     return
 
-def showBootstrap(boot, fig=1, figWidth=7,
+def showBootstrap(boot, fig=1, figWidth=None,
                  showRejected=False):
     global _AX, _AY
+
+    if figWidth is None:
+        figWidth = min(9, 1+2*len(boot['fitOnly']))
+
+    fontsize = max(min(4*figWidth/len(boot['fitOnly']), 14), 6)
+
     fig = plt.figure(fig, figsize=(figWidth, figWidth))
     _AX = {}
-    fontsize = max(min(4*figWidth/len(boot['fitOnly']), 14), 6)
 
     color1 = 'orange'
     color2 = (0.2, 0.4, 1)
