@@ -1,8 +1,9 @@
 import numpy as np
 from astropy.io import fits
 import scipy.signal
+import copy
 
-def loadOI(filename, insname=None, targname=None,
+def loadOI(filename, insname=None, targname=None, verbose=True,
            with_header=False, medfilt=False, tellurics=None):
     """
     load OIFITS "filename" and return a dict:
@@ -30,11 +31,12 @@ def loadOI(filename, insname=None, targname=None,
     instrument, of list of dictionnary).
 
     """
-    if type(filename)==list:
+    if type(filename)!=str:
         res = []
         for f in filename:
             tmp = loadOI(f, insname=insname, with_header=with_header,
-                         medfilt=medfilt, tellurics=tellurics, targname=targname)
+                         medfilt=medfilt, tellurics=tellurics, targname=targname,
+                         verbose=verbose)
             if type(tmp)==list:
                 res.extend(tmp)
             elif type(tmp)==dict:
@@ -75,10 +77,10 @@ def loadOI(filename, insname=None, targname=None,
     if with_header:
         res['header'] = h[0].header
 
-    print('*'*4, res['filename'], ', '
-          'insname:', '"'+insname+'"', ','
-          'targname:', '"'+targname+'"', '*'*10)
-
+    if verbose:
+        print('loadOI: loading', res['filename'],
+              'insname:', '"'+insname+'"',
+              'targname:', '"'+targname+'"')
     try:
         # -- VLTI 4T specific
         OPL = {}
@@ -101,7 +103,6 @@ def loadOI(filename, insname=None, targname=None,
         if 'EXTNAME' in hdu.header and hdu.header['EXTNAME']=='OI_WAVELENGTH' and\
             hdu.header['INSNAME']==insname:
             res['WL'] = hdu.data['EFF_WAVE']*1e6
-            print('WAVELENGTH:', len(res['WL']))
 
     #res['n_lab'] = n_JHK(res['WL'].astype(np.float64))#, 273.15+T, P, H)
 
@@ -117,31 +118,31 @@ def loadOI(filename, insname=None, targname=None,
         if 'EXTNAME' in hdu.header and hdu.header['EXTNAME']=='TELLURICS' and\
                     len(hdu.data['TELL_TRANS'])==len(res['WL']):
             res['TELLURICS'] = hdu.data['TELL_TRANS']
-            print('TELLURICS', hdu.data['TELL_TRANS'].shape)
         if 'EXTNAME' in hdu.header and hdu.header['EXTNAME']=='OI_FLUX' and\
                     hdu.header['INSNAME']==insname:
             sta1 = [oiarray[s] for s in hdu.data['STA_INDEX']]
-            print('OI_FLUX', set(sta1), end=' ')
-            showDims=True
             for k in set(sta1):
                 w = (np.array(sta1)==k)*(hdu.data['TARGET_ID']==targets[targname])
-                res['OI_FLUX'][k] = {'FLUX':hdu.data['FLUX'][w,:],
-                                    'EFLUX':hdu.data['FLUXERR'][w,:],
-                                    'FLAG':hdu.data['FLAG'][w,:],
-                                    'MJD':hdu.data['MJD'][w],
-                                     }
+                try:
+                    res['OI_FLUX'][k] = {'FLUX':hdu.data['FLUX'][w,:],
+                                        'EFLUX':hdu.data['FLUXERR'][w,:],
+                                        'FLAG':hdu.data['FLAG'][w,:],
+                                        'MJD':hdu.data['MJD'][w],
+                                         }
+                except:
+                    res['OI_FLUX'][k] = {'FLUX':hdu.data['FLUXDATA'][w,:],
+                                        'EFLUX':hdu.data['FLUXERR'][w,:],
+                                        'FLAG':hdu.data['FLAG'][w,:],
+                                        'MJD':hdu.data['MJD'][w],
+                                         }
+
                 res['OI_FLUX'][k]['FLAG'] = np.logical_or(res['OI_FLUX'][k]['FLAG'],
                                                           ~np.isfinite(res['OI_FLUX'][k]['FLUX']))
                 res['OI_FLUX'][k]['FLAG'] = np.logical_or(res['OI_FLUX'][k]['FLAG'],
                                                           ~np.isfinite(res['OI_FLUX'][k]['EFLUX']))
-                if showDims:
-                    print(res['OI_FLUX'][k]['FLUX'].shape)
-                    showDims=False
         elif 'EXTNAME' in hdu.header and hdu.header['EXTNAME']=='OI_VIS2' and\
                     hdu.header['INSNAME']==insname:
             sta2 = [oiarray[s[0]]+oiarray[s[1]] for s in hdu.data['STA_INDEX']]
-            print('OI_VIS2', set(sta2), end=' ')
-            showDims=True
             for k in set(sta2):
                 w = (np.array(sta2)==k)*(hdu.data['TARGET_ID']==targets[targname])
                 if k in res['OI_VIS2']:
@@ -159,9 +160,6 @@ def loadOI(filename, insname=None, targname=None,
                                                               ~np.isfinite(res['OI_VIS2'][k]['V2']))
                     res['OI_VIS2'][k]['FLAG'] = np.logical_or(res['OI_VIS2'][k]['FLAG'],
                                                               ~np.isfinite(res['OI_VIS2'][k]['EV2']))
-                    if showDims:
-                        print('+', tmp.shape, '->', res['OI_VIS2'][k]['V2'].shape)
-                        showDims=False
                 else:
                     res['OI_VIS2'][k] = {'V2':hdu.data['VIS2DATA'][w,:],
                                          'EV2':hdu.data['VIS2ERR'][w,:],
@@ -178,19 +176,16 @@ def loadOI(filename, insname=None, targname=None,
                                                               ~np.isfinite(res['OI_VIS2'][k]['V2']))
                     res['OI_VIS2'][k]['FLAG'] = np.logical_or(res['OI_VIS2'][k]['FLAG'],
                                                               ~np.isfinite(res['OI_VIS2'][k]['EV2']))
-                    if showDims:
-                        print(res['OI_VIS2'][k]['V2'].shape)
-                        showDims=False
 
                 res['OI_VIS2'][k]['B/wl'] = np.sqrt(res['OI_VIS2'][k]['u/wl']**2+
                                                     res['OI_VIS2'][k]['v/wl']**2)
+                res['OI_VIS2'][k]['PA'] = np.angle(res['OI_VIS2'][k]['v/wl']+
+                                                   1j*res['OI_VIS2'][k]['u/wl'], deg=True)
 
         # -- V baselines == telescopes pairs
         elif 'EXTNAME' in hdu.header and hdu.header['EXTNAME']=='OI_VIS' and\
                     hdu.header['INSNAME']==insname:
             sta2 = [oiarray[s[0]]+oiarray[s[1]] for s in hdu.data['STA_INDEX']]
-            print('OI_VIS', set(sta2), end=' ')
-            showDims = True
             for k in set(sta2):
                 w = (np.array(sta2)==k)*(hdu.data['TARGET_ID']==targets[targname])
                 if k in res['OI_VIS']:
@@ -210,9 +205,6 @@ def loadOI(filename, insname=None, targname=None,
                     res['OI_VIS'][k]['FLAG'] = np.logical_or(res['OI_VIS'][k]['FLAG'],
                                                              ~np.isfinite(res['OI_VIS'][k]['E|V|']))
 
-                    if showDims:
-                        print('+', tmp.shape, '->', res['OI_VIS'][k]['|V|'].shape)
-                        showDims=False
                 else:
                     res['OI_VIS'][k] = {'|V|':hdu.data['VISAMP'][w,:],
                                         'E|V|':hdu.data['VISAMPERR'][w,:],
@@ -227,11 +219,11 @@ def loadOI(filename, insname=None, targname=None,
                                                res['WL'][None,:],
                                         'FLAG':hdu.data['FLAG'][w,:]
                                         }
-                    if showDims:
-                        print(res['OI_VIS'][k]['|V|'].shape)
-                        showDims=False
                 res['OI_VIS'][k]['B/wl'] = np.sqrt(res['OI_VIS'][k]['u/wl']**2+
                                                     res['OI_VIS'][k]['v/wl']**2)
+                res['OI_VIS'][k]['PA'] = np.angle(res['OI_VIS'][k]['v/wl']+
+                                                  1j*res['OI_VIS'][k]['u/wl'], deg=True)
+
                 res['OI_VIS'][k]['FLAG'] = np.logical_or(res['OI_VIS'][k]['FLAG'],
                                                          ~np.isfinite(res['OI_VIS'][k]['|V|']))
                 res['OI_VIS'][k]['FLAG'] = np.logical_or(res['OI_VIS'][k]['FLAG'],
@@ -242,8 +234,6 @@ def loadOI(filename, insname=None, targname=None,
                     hdu.header['INSNAME']==insname:
             # -- T3 baselines == telescopes pairs
             sta3 = [oiarray[s[0]]+oiarray[s[1]]+oiarray[s[2]] for s in hdu.data['STA_INDEX']]
-            print('OI_T3', set(sta3), end=' ')
-            showDims=True
             # -- limitation: assumes all telescope have same number of char!
             n = len(sta3[0])//3 # number of char per telescope
             for k in set(sta3):
@@ -288,10 +278,6 @@ def loadOI(filename, insname=None, targname=None,
                                                             ~np.isfinite(res['OI_T3'][k]['T3AMP']))
                     res['OI_T3'][k]['FLAG'] = np.logical_or(res['OI_T3'][k]['FLAG'],
                                                             ~np.isfinite(res['OI_T3'][k]['ET3AMP']))
-                    if showDims:
-                        print('+', hdu.data['T3PHI'][w,:].shape ,
-                                '->', res['OI_T3'][k]['T3PHI'].shape)
-                        showDims=False
                 else:
                     res['OI_T3'][k] = {'T3AMP':hdu.data['T3AMP'][w,:],
                                        'ET3AMP':hdu.data['T3AMPERR'][w,:],
@@ -305,9 +291,6 @@ def loadOI(filename, insname=None, targname=None,
                                        'formula': (s, t),
                                        'FLAG':hdu.data['FLAG'][w,:]
                                         }
-                    if showDims:
-                        print(res['OI_T3'][k]['T3PHI'].shape)
-                        showDims=False
                 res['OI_T3'][k]['B1'] = np.sqrt(res['OI_T3'][k]['u1']**2+
                                                 res['OI_T3'][k]['v1']**2)
                 res['OI_T3'][k]['B2'] = np.sqrt(res['OI_T3'][k]['u2']**2+
@@ -321,8 +304,6 @@ def loadOI(filename, insname=None, targname=None,
                                                         ~np.isfinite(res['OI_T3'][k]['T3AMP']))
                 res['OI_T3'][k]['FLAG'] = np.logical_or(res['OI_T3'][k]['FLAG'],
                                                         ~np.isfinite(res['OI_T3'][k]['ET3AMP']))
-
-
 
     key = 'OI_VIS'
     if res['OI_VIS']=={}:
@@ -343,7 +324,7 @@ def loadOI(filename, insname=None, targname=None,
                 w0.append(np.argmin(np.abs(res[key][t[0]]['MJD']-mjd)))
                 w1.append(np.argmin(np.abs(res[key][t[1]]['MJD']-mjd)))
                 w2.append(np.argmin(np.abs(res[key][t[2]]['MJD']-mjd)))
-            res['OI_T3'][k]['formula'] = s, t, w0, w1, w2
+            res['OI_T3'][k]['formula'] = [s, t, w0, w1, w2]
 
     if 'OI_FLUX' in res:
         res['telescopes'] = sorted(list(res['OI_FLUX'].keys()))
@@ -354,12 +335,23 @@ def loadOI(filename, insname=None, targname=None,
             res['telescopes'].append(k[len(k)//2:])
         res['telescopes'] = sorted(list(set(res['telescopes'])))
     res['baselines'] = sorted(list(res[key].keys()))
+    if 'OI_T3' in res.keys():
+        res['triangles'] = sorted(list(res['OI_T3'].keys()))
+    else:
+        res['triangles'] = []
 
     if not 'TELLURICS' in res.keys():
         res['TELLURICS'] = np.ones(res['WL'].shape)
     if not tellurics is None:
         # -- forcing tellurics to given vector
         res['TELLURICS'] = tellurics
+    if 'OI_FLUX' in res.keys():
+        for k in res['OI_FLUX'].keys():
+            # -- raw flux
+            res['OI_FLUX'][k]['RFLUX'] = res['OI_FLUX'][k]['FLUX'].copy()
+            # -- corrected from tellurics
+            res['OI_FLUX'][k]['FLUX'] /= res['TELLURICS'][None,:]
+
     if medfilt:
         if type(medfilt) == int:
             kernel_size = 2*(medfilt//2)+1
@@ -367,6 +359,158 @@ def loadOI(filename, insname=None, targname=None,
             kernel_size = None
         res = medianFilt(res, kernel_size)
 
+    confperMJD = {}
+    for l in filter(lambda x: x in ['OI_VIS', 'OI_VIS2', 'OI_T3', 'OI_FLUX'], res.keys()):
+        for k in res[l].keys():
+            for mjd in res[l][k]['MJD']:
+                if not mjd in confperMJD.keys():
+                    confperMJD[mjd] = [k]
+                else:
+                    if not k in confperMJD[mjd]:
+                        confperMJD[mjd].append(k)
+    res['configurations per MJD'] = confperMJD
+
+    if verbose:
+        print('  >', '-'.join(res['telescopes']), end=' | ')
+        print('WL:', res['WL'].shape, round(np.min(res['WL']), 3), 'to',
+              round(np.max(res['WL']), 3), 'um', end=' | ')
+        print(sorted(list(filter(lambda x: x.startswith('OI_'), res.keys()))),
+                end=' | ')
+        print('TELLURICS:', res['TELLURICS'].min()<1)
+        # print('  >', 'telescopes:', res['telescopes'],
+        #       'baselines:', res['baselines'],
+        #       'triangles:', res['triangles'])
+
+    return res
+
+def mergeOI(OI, debug=False):
+    """
+    takes OI, a list of oifits files readouts (from loadOI), and merge them into
+    a smaller number of entities based with same spectral coverage
+
+    TODO: how polarisation in handled?
+    """
+    # -- create unique identifier for each setups
+    setups = [oi['insname']+str(oi['WL']) for oi in OI]
+
+    merged = [] # list of unique setup which have been merged so far
+    master = [] # same length as OI, True if element hold merged data for the setup
+    res = [] # result
+    for i, oi in enumerate(OI):
+        if debug:
+            print(i, setups[i])
+        if not setups[i] in merged:
+            # -- this will hold the data for this setup
+            merged.append(setups[i])
+            master.append(True)
+            if debug:
+                print('super oi')
+            res.append(copy.deepcopy(oi))
+            continue # exit for loop, nothing else to do
+        else:
+            # -- find data holder for this setup
+            #i0 = np.argmax([setups[j]==setups[i] and master[j] for j in range(i)])
+            i0 = merged.index(setups[i])
+            master.append(False)
+            # -- start merging with filename
+            res[i0]['filename'] += ';'+oi['filename']
+
+        if debug:
+            print('  will be merged with', i0)
+            print('  merging...')
+        # -- extensions to be merged:
+        exts = ['OI_VIS', 'OI_VIS2', 'OI_T3', 'OI_FLUX']
+        for l in filter(lambda e: e in exts, oi.keys()):
+            if not l in res[i0].keys():
+                # -- extension not present, using the one from oi
+                res[i0][l] = copy.deepcopy(oi[l])
+                if debug:
+                    print('    ', i0, 'does not have', l, '!')
+                # -- no additional merging needed
+                dataMerge = False
+            else:
+                dataMerge = True
+
+            # -- merge list of tel/base/tri per MJDs:
+            for mjd in oi['configurations per MJD']:
+                if not mjd in res[i0]['configurations per MJD']:
+                    res[i0]['configurations per MJD'][mjd] = \
+                        oi['configurations per MJD'][mjd]
+                else:
+                    for k in oi['configurations per MJD'][mjd]:
+                        if not k in res[i0]['configurations per MJD'][mjd]:
+                            res[i0]['configurations per MJD'][mjd].append(k)
+
+            if not dataMerge:
+                continue
+
+            # -- merge data in the extension:
+            for k in oi[l].keys():
+                # -- for each telescpe / baseline / triangle
+                if not k in res[i0][l].keys():
+                    # -- unknown telescope / baseline / triangle
+                    # -- just add it in the the dict
+                    res[i0][l][k] = copy.deepcopy(oi[l][k])
+                    if 'FLUX' in l:
+                        res[i0]['telescopes'].append(k)
+                    elif 'VIS' in l:
+                        res[i0]['baselines'].append(k)
+                    elif 'T3' in l:
+                        res[i0]['triangles'].append(k)
+                    if debug:
+                        print('    adding', k, 'to', l, 'in', i0)
+                else:
+                    # -- merging data (most complicated case)
+                    # -- ext1 are scalar
+                    # -- ext2 are vector of length WL
+                    if l=='OI_FLUX':
+                        ext1 = ['MJD']
+                        ext2 = ['FLUX', 'EFLUX', 'FLAG', 'RFLUX']
+                    elif l=='OI_VIS2':
+                        ext1 = ['u', 'v', 'MJD']
+                        ext2 = ['V2', 'EV2', 'FLAG', 'u/wl', 'v/wl', 'B/wl', 'PA']
+                    elif l=='OI_VIS':
+                        ext1 = ['u', 'v', 'MJD']
+                        ext2 = ['|V|', 'E|V|', 'PHI', 'EPHI', 'FLAG', 'u/wl', 'v/wl', 'B/wl', 'PA']
+                    if l=='OI_T3':
+                        ext1 = ['u1', 'v1', 'u2', 'v2', 'MJD', 'B1', 'B2', 'B3']
+                        ext2 = ['T3AMP', 'ET3AMP', 'T3PHI', 'ET3PHI',
+                                'FLAG','Bmax/wl']
+                    if debug:
+                        print(l, k, res[i0][l][k].keys())
+                    for t in ext1:
+                        # -- append len(MJDs) data
+                        res[i0][l][k][t] = np.append(res[i0][l][k][t], oi[l][k][t])
+                    for t in ext2:
+                        # -- append (len(MJDs),len(WL)) data
+                        s1 = res[i0][l][k][t].shape # = (len(MJDs),len(WL))
+                        s2 = oi[l][k][t].shape # = (len(MJDs),len(WL))
+                        res[i0][l][k][t] = np.append(res[i0][l][k][t], oi[l][k][t])
+                        res[i0][l][k][t] = res[i0][l][k][t].reshape(s1[0]+s2[0], s1[1])
+
+    # -- special case for T3 formulas
+    # -- match MJDs for T3 computations:
+    for r in res:
+        if 'OI_T3' in r.keys():
+            if 'OI_VIS' in r.keys():
+                key = 'OI_VIS'
+            else:
+                key = 'OI_VIS2'
+            for k in r['OI_T3'].keys():
+                s, t, w0, w1, w2 = r['OI_T3'][k]['formula']
+                _w0, _w1, _w2 = [], [], []
+                #print(k, np.round(r['OI_T3'][k]['MJD'], 3)-50000)
+                for mjd in r['OI_T3'][k]['MJD']:
+                    _w0.append(np.argmin(np.abs(r[key][t[0]]['MJD']-mjd)))
+                    _w1.append(np.argmin(np.abs(r[key][t[1]]['MJD']-mjd)))
+                    _w2.append(np.argmin(np.abs(r[key][t[2]]['MJD']-mjd)))
+                #print(' ', t[0], np.round(r[key][t[0]]['MJD'], 3)-50000, _w0)
+                #print(' ', t[1], np.round(r[key][t[1]]['MJD'], 3)-50000, _w1)
+                #print(' ', t[2], np.round(r[key][t[2]]['MJD'], 3)-50000, _w2)
+                r['OI_T3'][k]['formula'] = [s, t, _w0, _w1, _w2]
+
+    # -- keep only master oi's, which contains merged data:
+    #return [OI[i] for i in range(len(OI)) if master[i]]
     return res
 
 def medianFilt(oi, kernel_size=None):
@@ -420,7 +564,6 @@ def medianFilt(oi, kernel_size=None):
                 oi['OI_T3'][k]['T3AMP'][i,mask] = scipy.signal.medfilt(
                     oi['OI_T3'][k]['T3AMP'][i,mask], kernel_size=kernel_size)
                 oi['OI_T3'][k]['ET3AMP'][i,mask] /= np.sqrt(kernel_size)
-
     return oi
 
 def n_JHK(wl, T=None, P=None, H=None):

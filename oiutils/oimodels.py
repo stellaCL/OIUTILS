@@ -1,6 +1,8 @@
 import time
 import copy
 import multiprocessing
+import random
+import os
 
 import numpy as np
 import matplotlib
@@ -9,6 +11,7 @@ import matplotlib.pyplot as plt
 import scipy.special
 import scipy.interpolate
 import scipy.stats
+
 
 try:
     from oiutils import dpfit
@@ -51,12 +54,12 @@ def VsingleOI(oi, param, fov=None, pix=None, dx=0, dy=0):
     stretching:
     -----------
     object can be stretched along one direction, using 2 additional parameters:
-    'pa': projection angle from N (positive y) to E (positive x), in deg
-    'i': inclination, in deg
+    'projang': projection angle from N (positive y) to E (positive x), in deg
+    'incl': inclination, in deg
 
     slant:
     ------
-    'slant', 'slant pa'
+    'slant', 'slant projang'
 
     rings:
     ------
@@ -174,34 +177,34 @@ def VsingleOI(oi, param, fov=None, pix=None, dx=0, dy=0):
         x, y = 0.0, 0.0
 
     # -- 'slant' i.e. linear variation of flux
-    if 'slant' in list(_param.keys()) and 'slant pa' in list(_param.keys()):
+    if 'slant' in list(_param.keys()) and 'slant projang' in list(_param.keys()):
         du, dv = 1e-6, 1e-6 # in meters / microns
         if _param['slant']<0:
             _param['slant'] = np.abs(_param['slant'])
-            _param['slant pa'] = (_param['slant pa']+180)%360
+            _param['slant projang'] = (_param['slant projang']+180)%360
     else:
         du, dv = 0.0, 0.0
 
     # -- do we need to apply a stretch?
-    if 'pa' in _param.keys() and 'i' in _param.keys():
-        rot = -_param['pa']*np.pi/180
-        _uwl = lambda z: np.cos(_param['i']*np.pi/180)*\
+    if 'projang' in _param.keys() and 'incl' in _param.keys():
+        rot = -_param['projang']*np.pi/180
+        _uwl = lambda z: np.cos(_param['incl']*np.pi/180)*\
                          (np.cos(rot)*z['u/wl'] + np.sin(rot)*z['v/wl'])
         _vwl = lambda z: -np.sin(rot)*z['u/wl'] + np.cos(rot)*z['v/wl']
         _Bwl = lambda z: np.sqrt(_uwl(z)**2 + _vwl(z)**2)
 
         if du:
             _udu = lambda z: (np.cos(rot)*z['u/wl'] +\
-                              np.sin(rot)*z['v/wl'])*np.cos(np.pi*_param['i']/180)+du/oi['WL']
+                              np.sin(rot)*z['v/wl'])*np.cos(np.pi*_param['incl']/180)+du/oi['WL']
             _vdu = lambda z: -np.sin(rot)*z['u/wl'] + np.cos(rot)*z['v/wl']
             _Bdu = lambda z: np.sqrt(_udu(z)**2 + _vdu(z)**2)
             _udv = lambda z: (np.cos(rot)*z['u/wl'] +\
-                              np.sin(rot)*z['v/wl'])*np.cos(np.pi*_param['i']/180)
+                              np.sin(rot)*z['v/wl'])*np.cos(np.pi*_param['incl']/180)
             _vdv = lambda z: -np.sin(rot)*z['u/wl'] + np.cos(rot)*z['v/wl'] + dv/oi['WL']
             _Bdv = lambda z: np.sqrt(_udv(z)**2 + _vdv(z)**2)
 
         if not I is None:
-            _X = (np.cos(rot)*(X-x) + np.sin(rot)*(Y-y))/np.cos(_param['i']*np.pi/180)
+            _X = (np.cos(rot)*(X-x) + np.sin(rot)*(Y-y))/np.cos(_param['incl']*np.pi/180)
             _Y = -np.sin(rot)*(X-x) + np.cos(rot)*(Y-y)
             R = np.sqrt(_X**2+_Y**2)
     else:
@@ -308,10 +311,10 @@ def VsingleOI(oi, param, fov=None, pix=None, dx=0, dy=0):
         for k in _param.keys():
             if k.startswith('amp'):
                 _n.append(int(k.split('amp')[1]))
-                _phi.append(_param[k.replace('amp', 'pa')])
+                _phi.append(_param[k.replace('amp', 'projang')])
                 _amp.append(_param[k])
-        if 'pa' in _param.keys() and 'i' in _param.keys():
-            stretch = [np.cos(np.pi*_param['i']/180), _param['pa']]
+        if 'projang' in _param.keys() and 'incl' in _param.keys():
+            stretch = [np.cos(np.pi*_param['incl']/180), _param['projang']]
         else:
             stretch = [1,0]
         negativity += _negativityAzvar(_n, _phi, _amp)
@@ -376,8 +379,8 @@ def VsingleOI(oi, param, fov=None, pix=None, dx=0, dy=0):
     # -- slant in the image
     if du and not I is None:
         normI = np.sum(I)
-        I *= (1.0 + np.sin(_param['slant pa']*np.pi/180)*_param['slant']/diamout*_X +
-                    np.cos(_param['slant pa']*np.pi/180)*_param['slant']/diamout*_Y)
+        I *= (1.0 + np.sin(_param['slant projang']*np.pi/180)*_param['slant']/diamout*_X +
+                    np.cos(_param['slant projang']*np.pi/180)*_param['slant']/diamout*_Y)
         #I *= normI/np.sum(I)
 
     # -- cos or sin variation
@@ -416,13 +419,11 @@ def VsingleOI(oi, param, fov=None, pix=None, dx=0, dy=0):
             dVdv /= 2*_c/oi['WL']
             # -- see https://en.wikipedia.org/wiki/Fourier_transform#Tables_of_important_Fourier_transforms
             # -- relations 106 and 107
-            V = V+1j*(np.sin(_param['slant pa']*np.pi/180)*_param['slant']/diamout*dVdu +
-                     np.cos(_param['slant pa']*np.pi/180)*_param['slant']/diamout*dVdv)
+            V = V+1j*(np.sin(_param['slant projang']*np.pi/180)*_param['slant']/diamout*dVdu +
+                     np.cos(_param['slant projang']*np.pi/180)*_param['slant']/diamout*dVdv)
             V *= PHI(oi[key][k])
         else:
             V = Vf(oi[key][k])*PHI(oi[key][k])
-
-
 
         tmp['|V|'] = np.abs(V)
         tmp['EV'] = np.zeros(tmp['|V|'].shape)
@@ -490,7 +491,9 @@ def VfromImageOI(oi):
         oi['IM_VIS'][k] = tmp
     for k in oi['OI_FLUX'].keys():
         oi['IM_FLUX'][k] = {'FLUX':oi['OI_FLUX'][k]['FLAG']*0 +
-                                np.sum(oi['MODEL']['cube'], axis=(1,2))[None,:],
+                             np.sum(oi['MODEL']['cube'], axis=(1,2))[None,:],
+                            'RFLUX':oi['OI_FLUX'][k]['FLAG']*0 +
+                              np.sum(oi['MODEL']['cube'], axis=(1,2))[None,:],
                             'MJD':oi['OI_FLUX'][k]['MJD'],
                             'FLAG':oi['OI_FLUX'][k]['FLAG'],
                             }
@@ -563,6 +566,8 @@ def VmodelOI(oi, p, fov=None, pix=None, dx=0.0, dy=0.0, timeit=False):
         for k in oi['OI_FLUX'].keys():
             res['OI_FLUX'][k] = {'FLUX': oi['OI_FLUX'][k]['FLUX']*0 +
                                  res['MODEL']['totalflux'][None,:],
+                                 'RFLUX': oi['OI_FLUX'][k]['FLUX']*0 +
+                                   res['MODEL']['totalflux'][None,:],
                                  'EFLUX': oi['OI_FLUX'][k]['FLUX']*0,
                                  'FLAG': oi['OI_FLUX'][k]['FLAG'],
                                  'MJD': oi['OI_FLUX'][k]['MJD'],
@@ -757,10 +762,11 @@ def computeNormFluxOI(oi, param=None, order='auto'):
     for k in oi['OI_FLUX'].keys():
         data = []
         edata = []
-        for i,flux in enumerate(oi['OI_FLUX'][k]['FLUX']):
+        for i, flux in enumerate(oi['OI_FLUX'][k]['FLUX']):
             mask = w*~oi['OI_FLUX'][k]['FLAG'][i,:]
-            c = np.polyfit(oi['WL'][w], flux[w]/oi['TELLURICS'][w], order)
-            data.append(flux/oi['TELLURICS']/np.polyval(c, oi['WL']))
+            # -- continuum
+            c = np.polyfit(oi['WL'][w], flux[w], order)
+            data.append(flux/np.polyval(c, oi['WL']))
             edata.append(oi['OI_FLUX'][k]['EFLUX'][i]/np.polyval(c, oi['WL']))
         data = np.array(data)
         edata = np.array(edata)
@@ -840,9 +846,15 @@ def computeT3fromVisOI(oi):
     if 'OI_T3' in oi.keys():
         for k in oi['OI_T3'].keys():
             s, t, w0, w1, w2 = oi['OI_T3'][k]['formula']
-            oi['OI_T3'][k]['T3PHI'] = s[0]*oi['OI_VIS'][t[0]]['PHI'][w0,:]+\
-                                      s[1]*oi['OI_VIS'][t[1]]['PHI'][w1,:]+\
-                                      s[2]*oi['OI_VIS'][t[2]]['PHI'][w2,:]
+            try:
+                oi['OI_T3'][k]['T3PHI'] = s[0]*oi['OI_VIS'][t[0]]['PHI'][w0,:]+\
+                                          s[1]*oi['OI_VIS'][t[1]]['PHI'][w1,:]+\
+                                          s[2]*oi['OI_VIS'][t[2]]['PHI'][w2,:]
+            except:
+                print(k, oi['OI_T3'][k]['MJD'])
+                print(t[0], oi['OI_VIS'][t[0]]['MJD'], w0)
+                print(t[1], oi['OI_VIS'][t[1]]['MJD'], w1)
+                print(t[2], oi['OI_VIS'][t[2]]['MJD'], w2)
 
             # -- force -180 -> 180 degrees
             oi['OI_T3'][k]['T3PHI'] = (oi['OI_T3'][k]['T3PHI']+180)%360-180
@@ -973,7 +985,7 @@ def residualsOI(oi, param, timeit=False):
     if 'ignore baseline' in fit:
         ignoreBaseline = fit['ignore baseline']
     else:
-        ignoreBaseline = '**'
+        ignoreBaseline = 'no way they would call a baseline that!'
 
     # -- compute model
     t0 = time.time()
@@ -987,7 +999,9 @@ def residualsOI(oi, param, timeit=False):
             'V2':'OI_VIS2',
             'T3AMP':'OI_T3',
             'T3PHI':'OI_T3',
-            'NFLUX':'NFLUX',}
+            'NFLUX':'NFLUX', # flux normalized to continuum
+            'FLUX':'OI_FLUX' # flux, corrected from tellurics
+            }
     w = np.ones(oi['WL'].shape)
 
     if 'wl ranges' in fit:
@@ -1015,6 +1029,10 @@ def residualsOI(oi, param, timeit=False):
                     if 'min error' in fit and f in oi['fit']['min error']:
                         # -- force error to a minimum value
                         err = np.maximum(oi['fit']['min error'][f], err)
+                    if 'min relative error' in fit and f in oi['fit']['min relative error']:
+                        # -- force error to a minimum value
+                        err = np.maximum(oi['fit']['min relative error'][f]*oi[ext[f]][k][f],
+                                         err)
                     if 'mult error' in fit and f in oi['fit']['mult error']:
                         # -- force error to a minimum value
                         err *= oi['fit']['mult error'][f]
@@ -1039,7 +1057,7 @@ def residualsOI(oi, param, timeit=False):
 
 def fitOI(oi, firstGuess, fitOnly=None, doNotFit=None, verbose=2,
           maxfev=2000, ftol=1e-4, follow=None, prior=None,
-          randomise=False, iter=-1):
+          randomise=False, iter=-1, obs=None):
     """
     oi: a dict of list of dicts returned by oifits.loadOI
 
@@ -1083,13 +1101,27 @@ def fitOI(oi, firstGuess, fitOnly=None, doNotFit=None, verbose=2,
                 else:
                     o['fit'] = {'prior':prior}
 
+    if not obs is None:
+        if type(oi)==dict:
+            if 'fit' in oi:
+                oi['fit']['obs'] = obs
+            else:
+                oi['fit'] = {'obs':obs}
+        else:
+            for o in oi:
+                if 'fit' in o:
+                    o['fit']['obs'] = obs
+                else:
+                    o['fit'] = {'obs':obs}
+
     if randomise is False:
         tmp = oi
     else:
         # -- randomise data, for bootstrapping
         #if iter>0:
         #    print('iteration', iter, time.asctime())
-        tmp = randomiseData(oi, randomise=randomise, verbose=False)
+        #tmp = randomiseData(oi, randomise=randomise, verbose=False)
+        tmp = randomiseData2(oi,  verbose=False)
     z = residualsOI(tmp, firstGuess)*0.0
     if fitOnly is None and doNotFit is None:
         fitOnly = list(firstGuess.keys())
@@ -1099,6 +1131,38 @@ def fitOI(oi, firstGuess, fitOnly=None, doNotFit=None, verbose=2,
     fit['prior'] = prior
     return fit
 
+def randomiseData2(oi, verbose=False):
+    """
+    based on "configurations per MJD". Basically draw data from MJDs and/or
+    configuration:
+    1) have twice as many oi's, with either:
+        - half of the MJDs ignored
+        - half of the config, for each MJD, ignored
+
+    oi: list of data, from loadOI
+    """
+    res = []
+
+    # -- build a dataset twice as big as original one
+    for i in range(len(oi)*2):
+        tmp = copy.deepcopy(oi[i%len(oi)])
+
+        # -- exclude half of the spectral data vectors:
+        mjd_t = []
+        for k in tmp['configurations per MJD'].keys():
+            mjd_t.extend([str(k)+str(c) for c in tmp['configurations per MJD'][k]])
+        random.shuffle(mjd_t)
+        ignore = mjd_t[:len(mjd_t)//2]
+
+        exts = filter(lambda x: x in ['OI_VIS', 'OI_VIS2', 'OI_T3', 'OI_FLUX'], tmp.keys())
+        for l in exts:
+            for k in tmp[l].keys():
+                for i,mjd in enumerate(tmp[l][k]['MJD']):
+                    if str(mjd)+str(k) in ignore:
+                        tmp[l][k]['FLAG'][i,:] = True
+        res.append(tmp)
+    return res
+
 def randomiseData(oi, randomise='telescope or baseline', P=None, verbose=False):
     # -- make new sample of data
     if P is None:
@@ -1106,7 +1170,7 @@ def randomiseData(oi, randomise='telescope or baseline', P=None, verbose=False):
         Nall, Nt, Nb = 0, 0, 0
         for o in oi:
             for x in o['fit']['obs']:
-                if x in 'NFLUX':
+                if x in ['NFLUX']:
                     Nall += len(o['telescopes'])
                     Nt += len(o['telescopes']) - 1
                     Nb += len(o['telescopes'])
@@ -1128,6 +1192,7 @@ def randomiseData(oi, randomise='telescope or baseline', P=None, verbose=False):
         else:
             P = len(oi)
     tmp = []
+    # -- build new dataset of length P
     for k in range(P):
         i = np.random.randint(len(oi))
         tmp.append(copy.deepcopy(oi[i]))
@@ -1165,7 +1230,22 @@ def bootstrapFitOI(oi, fit, N=None, fitOnly=None, doNotFit=None, maxfev=2000,
     """
     """
     if N is None:
-        N = 2*sum([len(o['telescopes'])**2 for o in oi])
+        # count number of spectral vector data
+        N = 0
+        ext = {'|V|':'OI_VIS',
+                'PHI':'OI_VIS',
+                'DPHI':'DPHI',
+                'V2':'OI_VIS2',
+                'T3AMP':'OI_T3',
+                'T3PHI':'OI_T3',
+                'NFLUX':'NFLUX', # flux normalized to continuum
+                'FLUX':'OI_FLUX' # flux, corrected from tellurics
+                }
+        for o in oi:
+            for p in o['fit']['obs']:
+                for k in o[ext[p]].keys():
+                    N += len(o[ext[p]][k]['MJD'])
+        N *= 2
 
     fitOnly = fit['fitOnly']
     doNotFit = fit['doNotFit']
@@ -1403,12 +1483,14 @@ def showUV(oi, fig=0, polar=False):
     #     pass
     return
 
-allInOneAxes = None
+allInOneAxes = {}
+allInOneResiduals = {}
+
 def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
            imPow=1., imWl0=None, cmap='bone',  dx=0.0, dy=0.0,
            showChi2=True, wlMin=None, wlMax=None, allInOne=False, imMax=None,
            figWidth=9, logB=False, logV=False, color=(1.0,0.2,0.1),
-           checkImVis=False, ):
+           checkImVis=False, showFlagged=False):
     """
     oi: result from oifits.loadOI
     param: dict of parameters for model (optional)
@@ -1432,10 +1514,13 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
         dy: center of FoV (in mas, default:0.0)
 
     """
-    global allInOneAxes
+    global allInOneAxes, allInOneResiduals
+    # if allInOne and allInOneAxes is None:
+    #     allInOneAxes = {}
     if type(oi)==list:
         if allInOne:
             allInOneAxes = {}
+            allInOneResiduals = {}
         for i,o in enumerate(oi):
             if allInOne:
                 f = fig
@@ -1445,8 +1530,11 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
                    checkImVis=checkImVis, showIm=showIm and i==(len(oi)-1),
                    imWl0=imWl0, imPow=imPow, cmap=cmap, figWidth=figWidth,
                    wlMin=wlMin, wlMax=wlMax, allInOne=allInOne, imMax=imMax,
-                   logB=logB, logV=logV, color=color)
-        allInOneAxes = None
+                   logB=logB, logV=logV, color=color, showFlagged=showFlagged,
+                   showChi2=showChi2 and not (allInOne and i<len(oi)-1)
+                   )
+        allInOneAxes = {}
+        allInOneResiduals = {}
         return
 
     if param is None:
@@ -1487,9 +1575,9 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
             if 'OI_VIS2' in oi:
                 obs.append('V2')
             if 'OI_VIS' in oi:
-                obs.extend(['|V|', 'DPHI'])
+                obs.append('|V|')
             if 'OI_FLUX' in oi:
-                obs.extend('NFLUX')
+                obs.append('FLUX')
     elif not obs is None:
         pass
     else:
@@ -1502,6 +1590,10 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
         oi = computeDiffPhiOI(oi, param)
     if 'NFLUX' in obs:
         oi = computeNormFluxOI(oi, param)
+    if wlMin is None:
+        wlMin = min(oi['WL'][oi['WL mask']])
+    if wlMax is None:
+        wlMax = max(oi['WL'][oi['WL mask']])
 
     if not param is None:
         #print('compute model V (analytical)')
@@ -1517,29 +1609,30 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
     data = {
             'T3PHI':{'ext':'OI_T3', 'var':'T3PHI', 'unit':'deg', 'X':'Bmax/wl'},
             'T3AMP':{'ext':'OI_T3', 'var':'T3AMP', 'X':'Bmax/wl'},
-            'DPHI':{'ext':'DPHI', 'var':'DPHI', 'unit':'deg', 'X':'B/wl'},
-            '|V|':{'ext':'OI_VIS', 'var':'|V|', 'X':'B/wl'},
-            'PHI':{'ext':'OI_VIS', 'var':'PHI', 'X':'B/wl'},
-            'V2':{'ext':'OI_VIS2', 'var':'V2', 'X':'B/wl'},
+            'DPHI':{'ext':'DPHI', 'var':'DPHI', 'unit':'deg', 'X':'B/wl', 'C':'PA'},
+            '|V|':{'ext':'OI_VIS', 'var':'|V|', 'X':'B/wl', 'C':'PA'},
+            'PHI':{'ext':'OI_VIS', 'var':'PHI', 'X':'B/wl', 'C':'PA'},
+            'V2':{'ext':'OI_VIS2', 'var':'V2', 'X':'B/wl', 'C':'PA'},
             'FLUX':{'ext':'OI_FLUX', 'var':'FLUX'},
             'NFLUX':{'ext':'NFLUX', 'var':'NFLUX', 'unit':'normalized'},
             }
     imdata = {'T3PHI':{'ext':'IM_T3', 'var':'T3PHI', 'unit':'deg', 'X':'Bmax/wl'},
               'T3AMP':{'ext':'IM_T3', 'var':'T3AMP', 'X':'Bmax/wl'},
-              'DPHI':{'ext':'IM_VIS', 'var':'DPHI', 'unit':'deg', 'X':'B/wl'},
-              '|V|':{'ext':'IM_VIS', 'var':'|V|', 'X':'B/wl'},
-              'PHI':{'ext':'IM_VIS', 'var':'PHI', 'X':'B/wl'},
-              'V2':{'ext':'IM_VIS', 'var':'V2', 'X':'B/wl'},
+              'DPHI':{'ext':'IM_VIS', 'var':'DPHI', 'unit':'deg', 'X':'B/wl', 'C':'PA'},
+              '|V|':{'ext':'IM_VIS', 'var':'|V|', 'X':'B/wl', 'C':'PA'},
+              'PHI':{'ext':'IM_VIS', 'var':'PHI', 'X':'B/wl', 'C':'PA'},
+              'V2':{'ext':'IM_VIS', 'var':'V2', 'X':'B/wl', 'C':'PA'},
               'FLUX':{'ext':'IM_FLUX', 'var':'FLUX'},
               'NFLUX':{'ext':'IM_FLUX', 'var':'NFLUX', 'unit':'normalized'},
              }
     # -- plot in a certain order
-    obs = list(filter(lambda x: x in obs, ['NFLUX', 'T3PHI', 'T3AMP',
-                                            'DPHI', 'PHI', '|V|', 'V2']))
+    obs = list(filter(lambda x: x in data.keys(), obs))
     for c,l in enumerate(obs):
         # -- for each observable
-        N = len(oi[data[l]['ext']].keys())
+        if not data[l]['ext'] in oi.keys():
+            continue
 
+        N = len(oi[data[l]['ext']].keys())
         # -- for each telescope / baseline / triplets
         for i,k in enumerate(sorted(oi[data[l]['ext']].keys())):
             X = lambda r, j: r['WL']
@@ -1553,7 +1646,16 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
                         Xscale = 'log'
                 if not l in allInOneAxes.keys():
                     allInOneAxes[l] = plt.subplot(1, len(obs), c+1)
+                if not l in allInOneResiduals.keys():
+                    allInOneResiduals[l] = []
+
                 ax = allInOneAxes[l]
+                if 'C' in data[l]:
+                    Cmin, Cmax = 0, 360
+                    C = lambda r, j: matplotlib.cm.hsv(np.mod(r[data[l]['ext']][k][data[l]['C']][j,:], 360)/360)
+                else:
+                    C = None
+                C = None # do not use colors
             else:
                 if ax0 is None:
                     ax0 = plt.subplot(N, len(obs), len(obs)*i+c+1)
@@ -1563,20 +1665,20 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
 
             chi2 = 0.0
             resi = np.array([])
-            ymin = 1e6
-            ymax = -1e6
+            ymin, ymax = 1e6, -1e6
+            setylim = False
+
             # -- for each MJD:
             for j in range(oi[data[l]['ext']][k][data[l]['var']].shape[0]):
                 mask = ~oi[data[l]['ext']][k]['FLAG'][j,:]*oi['WL mask']
-                if wlMin is None:
-                    wlMin = min(oi['WL'][mask])
-                if wlMax is None:
-                    wlMax = max(oi['WL'][mask])
+                flagged = oi[data[l]['ext']][k]['FLAG'][j,:]*oi['WL mask']
                 y = oi[data[l]['ext']][k][data[l]['var']][j,:]
-                if 'PHI' in l:# and np.ptp(y[mask])>300:
-                    y[mask] = np.mod(y[mask]+180, 360)-180
-                    #y[mask] = np.unwrap(y[mask]*np.pi/180)*180/np.pi
-                    #y[mask] = _smoothUnwrap(y[mask], n=5)
+                if 'PHI' in l and any(mask):# and np.ptp(y[mask])>300:
+                    y[mask] = np.unwrap(y[mask]*np.pi/180)*180/np.pi
+                    y[mask] = np.mod(y[mask]-np.mean(y[mask])+180, 360)+np.mean(y[mask]-180)%360-360
+                    #y[flagged] = np.unwrap(y[flagged]*np.pi/180)*180/np.pi
+                    #y[flagged] = np.mod(y[flagged]+180, 360)-180
+                    pass
 
                 err = oi[data[l]['ext']][k]['E'+data[l]['var']][j,:].copy()
                 if 'max error' in oi['fit'] and \
@@ -1590,6 +1692,12 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
                 if 'min error' in oi['fit'] and \
                             data[l]['var'] in oi['fit']['min error']:
                     err[mask] = np.maximum(oi['fit']['min error'][data[l]['var']], err[mask])
+                if 'min relative error' in oi['fit'] and \
+                            data[l]['var'] in oi['fit']['min relative error']:
+                    # -- force error to a minimum value
+                    err[mask] = np.maximum(oi['fit']['min relative error'][data[l]['var']]*y[mask],
+                                     err[mask])
+
                 if 'mult error' in oi['fit'] and \
                             data[l]['var'] in oi['fit']['mult error']:
                     err *= oi['fit']['mult error'][data[l]['var']]
@@ -1597,11 +1705,25 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
                 # -- show data
                 test = testTelescopes(k, ignoreTelescope) or testBaselines(k, ignoreBaseline)
                 if allInOne:
-                    ax.plot(X(oi, j)[mask], y[mask],'.',
-                            color='k' if not test else '0.5',
-                            alpha=0.5, label=k if j==0 else '')
+                    if C is None:
+                        ax.plot(X(oi, j)[mask], y[mask], '.',
+                                color='k' if not test else '0.5',
+                                alpha=0.5, label=k if j==0 else '')
+                    else:
+                        ax.scatter(X(oi, j)[mask], y[mask], marker='.',
+                                   c=C(oi, j)[mask],
+                                alpha=0.5, label=k if j==0 else '')
+                        # ax.errorbar(X(oi, j)[mask], y[mask], yerr=err[mask],
+                        #             color=C(i,j)[mask], alpha=0.05, linestyle='None')
                     ax.errorbar(X(oi, j)[mask], y[mask], yerr=err[mask],
-                                color='k', alpha=0.2, linestyle='None')
+                                    color='0.5', alpha=0.05, linestyle='None')
+
+                    if showFlagged:
+                        ax.plot(X(oi, j)[flagged], y[flagged], '+',
+                                color='m' if not test else '0.5',
+                                alpha=0.5, label='flag' if j==0 else '')
+                        ax.errorbar(X(oi, j)[flagged], y[flagged], yerr=err[flagged],
+                                    color='m', alpha=0.2, linestyle='None')
                 else:
                     ax.step(X(oi, j)[mask], y[mask],
                             '-', color='k' if not test else '0.5',
@@ -1609,33 +1731,63 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
                     ax.fill_between(X(oi, j)[mask], y[mask]+err[mask], y[mask]-err[mask],
                                     step='mid', color='k',
                                     alpha=0.1 if not test else 0.05)
+                    if showFlagged:
+                        ax.plot(X(oi, j)[flagged], y[flagged],
+                                '+', color='m' if not test else '0.5',
+                                alpha=0.5, label='flag' if j==0 else '')
+                        ax.errorbar(X(oi, j)[flagged], y[flagged], yerr=err[flagged],
+                                    color='m', alpha=0.2, linestyle='None')
+
                 if not ign is None:
                     # -- show ignored data
                     plt.plot(X(oi,j)[ign], y[ign], 'xy', alpha=0.5)
 
                 maskp = mask*(oi['WL']>=wlMin)*(oi['WL']<=wlMax)
-                ymin = min(ymin, np.percentile((y-err)[maskp], 1))
-                ymax = max(ymax, np.percentile((y+err)[maskp], 99))
+                try:
+                    ymin = min(ymin, np.percentile((y-err)[maskp], 1))
+                    ymax = max(ymax, np.percentile((y+err)[maskp], 99))
+                    setylim = True
+                except:
+                    pass
 
                 # -- show model (analytical)
-                if not m is None:
+                if not m is None and any(mask) and data[l]['ext'] in m.keys():
                     ym = m[data[l]['ext']][k][data[l]['var']][j,:]
                     ym[mask] = np.unwrap(ym[mask]*np.pi/180)*180/np.pi
+                    ym[mask] = np.mod(ym[mask]+180-np.mean(ym[mask]), 360)+(np.mean(ym[mask])-180)%360-360
+
                     # -- computed chi2 *in the displayed window*
                     maskc2 = mask*(oi['WL']>=wlMin)*(oi['WL']<=wlMax)
-                    chi2 += np.mean((y-ym)[maskc2]**2/err[maskc2]**2
-                                /len(oi[data[l]['ext']][k]['MJD']))
-                    resi = np.append(resi, (y-ym)[maskc2].flatten())
+                    if 'PHI' in l:
+                        _resi = ((y-ym+180)%360-180)/err
+                    else:
+                        _resi = (y-ym)/err
+
+                    # -- show residuals
+                    # ax.plot(X(oi, j)[mask], _resi[mask], '+',
+                    #         color='b' if not test else '0.5',
+                    #         alpha=0.5, label=k if j==0 else '')
+
+                    # -- average over MJDs
+                    #chi2 += np.mean(_resi[maskc2]**2)/len(oi[data[l]['ext']][k]['MJD'])
+                    # -- build residuals array
+                    resi = np.append(resi, _resi[maskc2].flatten())
                     if allInOne:
                         ax.plot(X(m,j)[maskc2], ym[maskc2],
-                                '.', alpha=0.4 if not test else 0.2,
-                                color=color)
+                                '+', alpha=0.2 if not test else 0.2,
+                                color=color if C is None else 'k')
                     else:
                         ax.step(X(m,j)[maskc2], ym[maskc2],
                                 '-', alpha=0.4 if not test else 0.2,
                                 where='mid', color=color)
-                    ymin = min(ymin, np.min(ym[maskp]))
-                    ymax = max(ymax, np.max(ym[maskp]))
+                    try:
+                        ymin = min(ymin, np.min(ym[maskp]))
+                        ymax = max(ymax, np.max(ym[maskp]))
+                        setylim = True
+                    except:
+                        pass
+                else:
+                    resi = None
 
                 # -- show model (numerical from image)
                 if checkImVis:
@@ -1653,7 +1805,7 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
                     ax.plot(X(oi, j), cont, ':', color='c', linewidth=3)
 
                 # -- show phase based on OPL
-                if l=='PHI':
+                if l=='PHI' and 'OPL' in oi.keys():
                     dOPL = oi['OPL'][k[2:]] - oi['OPL'][k[:2]]
                     print(k, dOPL)
                     wl0 = 2.2
@@ -1661,26 +1813,40 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
                     cn[-2:] = 0.0
                     ax.plot(oi['WL'], -360*dOPL*np.polyval(cn, oi['WL']-wl0)/(oi['WL']*1e-6),
                             ':c', linewidth=2)
-
             # -- end loop on MJDs
+            if allInOne and not resi is None:
+                allInOneResiduals[l].extend(list(resi))
+                test =  i == len(oi[data[l]['ext']].keys())-1
+                if test:
+                    resi = np.array(allInOneResiduals[l])
+            else:
+                test = True
+
+            if test and showChi2 and not resi is None:
+                try:
+                    chi2 = np.mean(resi**2)
+                except:
+                    print(resi)
+                if len(resi)<24:
+                    rms = np.std(resi)
+                    f = 'rms'
+                else:
+                    rms = 0.5*(np.percentile(resi, 84)-np.percentile(resi, 16))
+                    f = '%%rms'
+                fmt = '$\chi^2$=%.2f '
+                n = max(int(np.ceil(-np.log10(rms)+1)), 0)
+                fmt += f+'=%.'+str(n)+'f'+r'$\sigma$'
+                ax.text(0.02, 0.02, fmt%(chi2, rms),
+                        color=color, fontsize=6,
+                        transform=ax.transAxes, ha='left', va='bottom')
+
+
             if not allInOne:
                 maskp = mask*(oi['WL']>=wlMin)*(oi['WL']<=wlMax)
-                yamp = ymax-ymin
-                ax.set_ylim(ymin - 0.2*yamp, ymax + 0.2*yamp)
+                if setylim:
+                    yamp = ymax-ymin
+                    ax.set_ylim(ymin - 0.2*yamp, ymax + 0.2*yamp)
                 ax.set_xlim(wlMin, wlMax)
-
-                if showChi2:
-                    if len(resi)<24:
-                        rms = np.std(resi)
-                    else:
-                        rms = 0.5*(np.percentile(resi, 84)-np.percentile(resi, 16))
-                    fmt = '$\chi^2$=%.2f '
-                    n = int(np.ceil(-np.log10(rms)+1))
-                    fmt += 'rms=%.'+str(n)+'f'
-
-                    ax.text(0.02, 0.02, fmt%(chi2, rms),
-                            color=color, fontsize=6,
-                            transform=ax.transAxes, ha='left', va='bottom')
 
                 ax.text(0.02, 0.98, k, transform=ax.transAxes,
                          ha='left', va='top', fontsize=6, color='k')
@@ -1708,7 +1874,13 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
 
     plt.subplots_adjust(hspace=0, wspace=0.2, left=0.06, right=0.99)
     if not allInOne:
-        plt.suptitle(oi['filename'], fontsize=10)
+        title = [os.path.basename(f) for f in oi['filename'].split(';')]
+        title = sorted(title)
+        if len(title)>3:
+            title = title[0]+'...'+title[-1]
+        else:
+            title = '\n'.join(title)
+        plt.suptitle(title, fontsize=10)
 
     if showIm and not param is None:
         showModel(oi, param, m=m, fig=fig+1, imPow=imPow, cmap=cmap, figWidth=figWidth,
@@ -2065,7 +2237,7 @@ def _Vazvar(u, v, I, r, n, phi, amp, stretch=None, V0=None, numerical=False,
     see Also: https://en.wikipedia.org/wiki/Hankel_transform#Relation_to_the_Fourier_transform_(general_2D_case)
     """
 
-    c = np.pi/180./3600./1000.*1e6
+    #c = np.pi/180./3600./1000.*1e6
     if not isinstance(n, list):
         # -- scalar case
         n = [n]
@@ -2082,7 +2254,7 @@ def _Vazvar(u, v, I, r, n, phi, amp, stretch=None, V0=None, numerical=False,
         B = np.sqrt(u**2+v**2)
         if XY is None:
             # -- to double check
-            pix = 1/(B.max()*c*20)
+            pix = 1/(B.max()*_c*20)
             Nx = int(np.ptp(r)/pix)+1
             Ny = int(np.ptp(r)/pix)+1
             Nmax = 200 # RAM requirement balloons quickly
@@ -2132,10 +2304,10 @@ def _Vazvar(u, v, I, r, n, phi, amp, stretch=None, V0=None, numerical=False,
         # -- numerical Visibility
         if numVis:
             if len(u.shape)==2:
-                Vis = Im[:,:,None,None]*np.exp(-2j*np.pi*c*(u[None,None,:,:]*X[:,:,None,None] +
+                Vis = Im[:,:,None,None]*np.exp(-2j*_c*(u[None,None,:,:]*X[:,:,None,None] +
                                                             v[None,None,:,:]*Y[:,:,None,None]))
             elif len(u.shape)==1:
-                Vis = Im[:,:,None]*np.exp(-2j*np.pi*c*(u[None,None,:,:]*X[:,:,None] +
+                Vis = Im[:,:,None]*np.exp(-2j*_c*(u[None,None,:,:]*X[:,:,None] +
                                                        v[None,None,:,:]*Y[:,:,None]))
             Vis = np.trapz(np.trapz(Vis, axis=0), axis=0)/np.trapz(np.trapz(Im, axis=0), axis=0)
         else:
@@ -2172,12 +2344,12 @@ def _Vazvar(u, v, I, r, n, phi, amp, stretch=None, V0=None, numerical=False,
     def Hankel(n):
         if not Bm is None:
             H = np.trapz(I[:,None]*r[:,None]*\
-                         scipy.special.jv(n, 2*np.pi*c*Bm[None,:]*r[:,None]),
+                         scipy.special.jv(n, 2*_c*Bm[None,:]*r[:,None]),
                          r, axis=0)/np.trapz(I*r, r)
             return np.interp(_B, Bm, H)
         else:
             H = np.trapz(I[:,None]*r[:,None]*\
-                         scipy.special.jv(n, 2*np.pi*c*_B.flatten()[None,:]*r[:,None]),
+                         scipy.special.jv(n, 2*_c*_B.flatten()[None,:]*r[:,None]),
                          r, axis=0)/np.trapz(I*r, r)
             return np.reshape(H, _B.shape)
 
@@ -2198,7 +2370,7 @@ def _Vazvar(u, v, I, r, n, phi, amp, stretch=None, V0=None, numerical=False,
 def testAzVar():
     """
     """
-    c = np.pi/180./3600./1000.*1e6
+    #c = np.pi/180./3600./1000.*1e6
 
     wl0 = 1.6 # in microns
     diam = 10 # in mas
@@ -2300,14 +2472,14 @@ def testAzVar():
     ax0 = plt.subplot(2,4,2)
     plt.title('|V| numerical')
     ax0.set_aspect('equal')
-    pvis = plt.pcolormesh(c*diam*U/wl0, c*diam*V/wl0, np.abs(Vis),
+    pvis = plt.pcolormesh(_c*diam*U/wl0, _c*diam*V/wl0, np.abs(Vis),
                           cmap='gist_stern', vmin=0, vmax=1)
     plt.colorbar(pvis)
 
     ax = plt.subplot(2,4,3, sharex=ax0, sharey=ax0)
     plt.title('|V| semi-analytical')
     ax.set_aspect('equal')
-    plt.pcolormesh(c*diam*U/wl0, c*diam*V/wl0, np.abs(Visp),
+    plt.pcolormesh(_c*diam*U/wl0, _c*diam*V/wl0, np.abs(Visp),
                     cmap='gist_stern', vmin=0, vmax=1)
 
     ax = plt.subplot(2,4,4, sharex=ax0, sharey=ax0)
@@ -2315,7 +2487,7 @@ def testAzVar():
     plt.title('$\Delta$|V| (1/100)')
     ax.set_aspect('equal')
     res = 100*(np.abs(Vis)-np.abs(Visp))
-    pv = plt.pcolormesh(c*diam*U/wl0, c*diam*V/wl0,
+    pv = plt.pcolormesh(_c*diam*U/wl0, _c*diam*V/wl0,
                     res, cmap='RdBu',
                     vmin=-np.max(np.abs(res)),
                     vmax=np.max(np.abs(res)),
@@ -2328,7 +2500,7 @@ def testAzVar():
     plt.xlabel(r'B$\theta$/$\lambda$ (m.rad/m)')
     ax.set_aspect('equal')
     plt.title('$\phi$ numerical')
-    plt.pcolormesh(c*diam*U/wl0, c*diam*V/wl0, 180/np.pi*np.angle(Vis),
+    plt.pcolormesh(_c*diam*U/wl0, _c*diam*V/wl0, 180/np.pi*np.angle(Vis),
                     cmap='hsv', vmin=-180, vmax=180)
     plt.colorbar()
 
@@ -2336,7 +2508,7 @@ def testAzVar():
     plt.xlabel(r'B$\theta$/$\lambda$ (m.rad/m)')
     ax.set_aspect('equal')
     plt.title('$\phi$ semi-analytical')
-    plt.pcolormesh(c*diam*U/wl0, c*diam*V/wl0, 180/np.pi*np.angle(Visp),
+    plt.pcolormesh(_c*diam*U/wl0, _c*diam*V/wl0, 180/np.pi*np.angle(Visp),
                     cmap='hsv', vmin=-180, vmax=180)
 
     ax = plt.subplot(2,4,8, sharex=ax0, sharey=ax0)
@@ -2344,7 +2516,7 @@ def testAzVar():
     plt.title('$\Delta\phi$ (deg)')
     ax.set_aspect('equal')
     res = 180/np.pi*((np.angle(Vis)-np.angle(Visp)+np.pi)%(2*np.pi)-np.pi)
-    pp = plt.pcolormesh(c*diam*U/wl0, c*diam*V/wl0, res,
+    pp = plt.pcolormesh(_c*diam*U/wl0, _c*diam*V/wl0, res,
                         cmap='RdBu', vmin=-dyn, vmax=dyn)
     print('median phase residual (abs.) = %.3f'%np.median(np.abs(res)), 'deg')
     print('90perc phase residual (abs.) = %.3f'%np.percentile(np.abs(res), 90), 'deg')
