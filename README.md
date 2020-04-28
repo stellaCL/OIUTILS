@@ -23,11 +23,15 @@ The principles are close to tolls such as [LITpro](https://www.jmmc.fr/english/t
 
 Run the following command in the the root directory of the sources:
 ```
-python setup.py install
+python setup.py install --record files.txt
 ```
 if you do not have the root rights to your system, you can alternatively run:
 ```
-python setup.py install --user
+python setup.py install --user --record files.txt
+```
+To uninstall:
+```
+xargs rm -rf < files.txt
 ```
 
 ## Basic example
@@ -64,13 +68,13 @@ if none of these is given, the component will be fully resolved (V=0)
 
 ### Stretching:
   Object can be stretched along one direction, using 2 additional parameters:
-  - `pa`: projection angle from N (positive y) to E (positive x), in deg
-  - `i`: inclination, in deg.
+  - `projang`: projection angle from N (positive y) to E (positive x), in deg
+  - `incl`: inclination, in deg.
 
 The dimensions will be reduced by a factor cos(i) along the direction perpendicular to the projection angle
 
 ### Slant:
-  `slant`, `slant pa`: definition TBD
+  `slant`, `slant projang`: definition TBD
 
 ### Rings:
   Rings are by default uniform in brightness. This can be altered by using
@@ -85,8 +89,6 @@ param = {'diam':1.0, 'profile':'MU**alpha', 'alpha':0.1}
 The parsing of `profile` is very basic, so do not create variable names with common name. For instance, using `{'profile':'1-s*np.sqrt(MU)', 's':0.1}` will fail, since the profiles will be transformed into `1-0.1*np.0.1qrt(MU)` (the 's' of sqrt will be substituted with its value of 0.1).
 
 - `ampi`, `phii`: defines the cos variation amplitude and phase for i nodes along the azimuth
-
-TBD
 
 ### Flux modeling:
 If nothing is specified, flux is assume equal to 1 at all wavelengths. Flux can be described using several parameters:

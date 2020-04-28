@@ -3,6 +3,7 @@ import copy
 import multiprocessing
 import random
 import os
+import platform, subprocess
 
 import numpy as np
 import matplotlib
@@ -1223,6 +1224,16 @@ def randomiseData(oi, randomise='telescope or baseline', P=None, verbose=False):
                 print('   ', i, 'ignore baseline', tmp[-1]['baselines'][j])
     return tmp
 
+def get_processor_info():
+    if platform.system() == "Windows":
+        return platform.processor()
+    elif platform.system() == "Darwin":
+        return subprocess.check_output(['/usr/sbin/sysctl', "-n", "machdep.cpu.brand_string"]).strip().decode()
+    elif platform.system() == "Linux":
+        command = "cat /proc/cpuinfo"
+        return subprocess.check_output(command, shell=True).strip().decode()
+    return "unknown processor"
+
 def bootstrapFitOI(oi, fit, N=None, fitOnly=None, doNotFit=None, maxfev=2000,
                    ftol=1e-5, randomise='telescope or baseline', sigmaClipping=4.5,
                    multi=True, prior=None):
@@ -1260,11 +1271,10 @@ def bootstrapFitOI(oi, fit, N=None, fitOnly=None, doNotFit=None, maxfev=2000,
     res = []
     if multi:
         if type(multi)!=int:
-            np = multiprocessing.cpu_count()
+            np = min(multiprocessing.cpu_count(), N)
         else:
-            np = multi
-        print('pooling', np, 'processes to run', N, 'fits...')
-
+            np = min(multi, N)
+        print('running', N, 'fits...')
         # -- estimate fitting time by running 'np' fit in parallel
         t = time.time()
         pool = multiprocessing.Pool(np)
@@ -1274,32 +1284,31 @@ def bootstrapFitOI(oi, fit, N=None, fitOnly=None, doNotFit=None, maxfev=2000,
         pool.close()
         pool.join()
         res = [r.get(timeout=1) for r in res]
-        t = time.time()-t
-        print('one fit takes ~%.2fs'%(t/min(np, N)))
+        print('one fit takes ~%.2fs using %d threads on %s'%((time.time()-t)/min(np, N), np,
+               get_processor_info()))
 
         # -- run the remaining
-        t = time.time()
-        pool = multiprocessing.Pool(np)
-        for i in range(max(N-np, 0)):
-            kwargs['iter'] = np+i
-            res.append(pool.apply_async(fitOI, (oi,firstGuess, ), kwargs))
-        pool.close()
-        pool.join()
-        res = res[:np]+[r.get(timeout=1) for r in res[np:]]
+        if N>np:
+            pool = multiprocessing.Pool(np)
+            for i in range(max(N-np, 0)):
+                kwargs['iter'] = np+i
+                res.append(pool.apply_async(fitOI, (oi,firstGuess, ), kwargs))
+            pool.close()
+            pool.join()
+            res = res[:np]+[r.get(timeout=1) for r in res[np:]]
+
     else:
         np = 1
         t = time.time()
         res.append(fitOI(oi,firstGuess, **kwargs))
-        t = time.time()-t
-        print('one fit takes ~%.2fs'%t)
-        t = time.time()
+        print('one fit takes ~%.2fs'%(time.time()-t))
         for i in range(N-1):
             kwargs['iter'] = i
             if i%10==0:
                 print('%s | bootstrap fit %d/%d'%(time.asctime(), i, N-1))
             res.append(fitOI(oi, firstGuess, **kwargs))
     print('it took %.1fs, %.2fs per fit on average'%(time.time()-t,
-                                                    (time.time()-t)/(N-np)))
+                                                    (time.time()-t)/N))
     try:
         res = analyseBootstrap(res, sigmaClipping=sigmaClipping)
         res['fit to all data'] = fit
