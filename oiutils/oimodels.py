@@ -1284,8 +1284,8 @@ def bootstrapFitOI(oi, fit, N=None, fitOnly=None, doNotFit=None, maxfev=2000,
         pool.close()
         pool.join()
         res = [r.get(timeout=1) for r in res]
-        print('one fit takes ~%.2fs using %d threads on %s'%((time.time()-t)/min(np, N), np,
-               get_processor_info()))
+        print('one fit takes ~%.2fs using %d threads'%(
+                (time.time()-t)/min(np, N), np))
 
         # -- run the remaining
         if N>np:
