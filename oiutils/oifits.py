@@ -78,9 +78,8 @@ def loadOI(filename, insname=None, targname=None, verbose=True,
         res['header'] = h[0].header
 
     if verbose:
-        print('loadOI: loading', res['filename'],
-              'insname:', '"'+insname+'"',
-              'targname:', '"'+targname+'"')
+        print('loadOI: loading', res['filename'])
+        print('  > insname:', '"'+insname+'"','targname:', '"'+targname+'"')
     try:
         # -- VLTI 4T specific
         OPL = {}
@@ -371,6 +370,12 @@ def loadOI(filename, insname=None, targname=None, verbose=True,
     res['configurations per MJD'] = confperMJD
 
     if verbose:
+        mjd = []
+        for e in ['OI_VIS2', 'OI_VIS', 'OI_T3', 'OI_FLUX']:
+            if e in res.keys():
+                for k in res[e].keys():
+                    mjd.extend(list(res[e][k]['MJD']))
+        print('  > MJD:', sorted(set(mjd)))
         print('  >', '-'.join(res['telescopes']), end=' | ')
         print('WL:', res['WL'].shape, round(np.min(res['WL']), 3), 'to',
               round(np.max(res['WL']), 3), 'um', end=' | ')

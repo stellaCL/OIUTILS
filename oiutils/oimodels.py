@@ -508,7 +508,7 @@ def VmodelOI(oi, p, fov=None, pix=None, dx=0.0, dy=0.0, timeit=False):
         return [VmodelOI(o, param, fov=fov, pix=pix, dx=dx, dy=dy,
                         timeit=timeit) for o in oi]
     # -- split in components if needed
-    comp = set([x.split(',')[0] for x in param.keys() if ',' in x])
+    comp = set([x.split(',')[0].strip() for x in param.keys() if ',' in x])
     if len(comp)==0:
         return VsingleOI(oi, param, fov=fov, pix=pix, dx=dx, dy=dy)
 
@@ -516,7 +516,7 @@ def VmodelOI(oi, p, fov=None, pix=None, dx=0.0, dy=0.0, timeit=False):
     t0 = time.time()
     for c in comp:
         # -- this component. Assumes all param without ',' are common to all
-        _param = {k.split(',')[1]:param[k] for k in param.keys() if
+        _param = {k.split(',')[1].strip():param[k] for k in param.keys() if
                   k.startswith(c+',')}
         _param.update({k:param[k] for k in param.keys() if not ',' in k})
         if res=={}:
@@ -1146,7 +1146,6 @@ def randomiseData2(oi, verbose=False):
     # -- build a dataset twice as big as original one
     for i in range(len(oi)*2):
         tmp = copy.deepcopy(oi[i%len(oi)])
-
         # -- exclude half of the spectral data vectors:
         mjd_t = []
         for k in tmp['configurations per MJD'].keys():
@@ -1266,20 +1265,22 @@ def bootstrapFitOI(oi, fit, N=None, fitOnly=None, doNotFit=None, maxfev=2000,
             np = multi
         print('pooling', np, 'processes to run', N, 'fits...')
 
+        # -- estimate fitting time by running 'np' fit in parallel
         t = time.time()
         pool = multiprocessing.Pool(np)
-        for i in range(np):
+        for i in range(min(np, N)):
             kwargs['iter'] = i
             res.append(pool.apply_async(fitOI, (oi, firstGuess, ), kwargs))
         pool.close()
         pool.join()
         res = [r.get(timeout=1) for r in res]
         t = time.time()-t
-        print('one fit takes ~%.2fs'%(t/np))
+        print('one fit takes ~%.2fs'%(t/min(np, N)))
 
+        # -- run the remaining
         t = time.time()
         pool = multiprocessing.Pool(np)
-        for i in range(N-np):
+        for i in range(max(N-np, 0)):
             kwargs['iter'] = np+i
             res.append(pool.apply_async(fitOI, (oi,firstGuess, ), kwargs))
         pool.close()
@@ -1362,8 +1363,8 @@ def analyseBootstrap(Boot, sigmaClipping=4.5, verbose=2):
                    for i,ki in enumerate(res['fitOnly'])}
     if verbose:
         if not sigmaClipping is None:
-            print('using %d fits out of %d (sigma clipping %.2f)'%(len(res['fitOnly']),
-                    np.sum(mask), sigmaClipping))
+            print('using %d fits out of %d (sigma clipping %.2f)'%(
+                    np.sum(mask), len(Boot), sigmaClipping))
         ns = max([len(k) for k in res['best'].keys()])
         print('{', end='')
         for k in sorted(res['best'].keys()):
@@ -1774,7 +1775,7 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
                     resi = np.append(resi, _resi[maskc2].flatten())
                     if allInOne:
                         ax.plot(X(m,j)[maskc2], ym[maskc2],
-                                '+', alpha=0.2 if not test else 0.2,
+                                '+', alpha=0.4 if not test else 0.2,
                                 color=color if C is None else 'k')
                     else:
                         ax.step(X(m,j)[maskc2], ym[maskc2],
@@ -1905,7 +1906,7 @@ def showModel(oi, param, m=None, fig=1, imPow=1.0, fov=None, pix=None,
         imMax = 1.0
 
     # -- components
-    comps = set([k.split(',')[0] for k in param.keys() if ',' in k])
+    comps = set([k.split(',')[0].strip() for k in param.keys() if ',' in k])
     # -- peak wavelengths to show components with color code
     wlpeak = {}
     allpeaks = []
@@ -2012,8 +2013,8 @@ def showModel(oi, param, m=None, fig=1, imPow=1.0, fov=None, pix=None,
         if k.endswith(','+key):
             plt.step(m['WL'][oi['WL mask']],
                       m['MODEL'][k][oi['WL mask']],
-                      label=k.split(',')[0], where='mid',
-                    color=symbols[k.split(',')[0]]['c'])
+                      label=k.split(',')[0].strip(), where='mid',
+                    color=symbols[k.split(',')[0].strip()]['c'])
 
     plt.grid(color=(0.2, 0.4, 0.7), alpha=0.2)
 
