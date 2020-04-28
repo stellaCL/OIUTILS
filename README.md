@@ -1,4 +1,4 @@
-# OIUTILS: read, display and model interferometric data in the OIFITS data format
+![banner](banner.png)
 
 ## Overview
 
@@ -8,16 +8,15 @@ data format, is described in [Duvert et al. (2017)](https://ui.adsabs.harvard.ed
 
 The modeling of data is based on several principles:
 - The model is composed of a combination of basic building blocks
-- building blocks include uniform disks, uniform rings, gaussian, rings with arbitrary profiles and/or azimuthal variation.
+- Simple building blocks include uniform disks, uniform rings, gaussian.
 - Building blocks can be deformed (analytically), including stretched in one preferred direction, or slanted.
 - More complicated blocks are available, such as disks/rings with arbitrary radial profile, with possibility to include azimuthal variations.
 - Each component has a spectrum, including modeling of emission or absorption lines (Gaussian or Lorentzian)
-- In order for the computation to be fast (a requirement to perform data fitting), basic blocks have analytical complex visibilities. Moreover, for the same reason, their spectral component is independent of the geometry.
+- In order for the computation to be fast (a requirement to perform data fitting), basic blocks have analytical or semi-analytical complex visibilities. Moreover, for the same reason, their spectral component is independent of the geometry.
 
-The principles are close to tolls such as [LITpro](https://www.jmmc.fr/english/tools/data-analysis/litpro). However, OIUTILS offers additional features:
+The principles are close to tools such as [LITpro](https://www.jmmc.fr/english/tools/data-analysis/litpro). However, OIUTILS offers additional features:
 - OIUTILS extends the modeling in the spectral dimension. For this reason, OIUTILS contains a module to do basic telluric correction (only for GRAVITY at the moment)
 - Models' parameters can be expressed a function of others, which allows to build complex geometrical shapes.
-
 
 ## Install
 
@@ -29,27 +28,24 @@ if you do not have the root rights to your system, you can alternatively run:
 ```
 python setup.py install --user --record files.txt
 ```
-To uninstall:
+To uninstall (assuming you have recorded the install files at described above):
 ```
 xargs rm -rf < files.txt
 ```
 
-## Basic example
+## Examples
+
+The most basic OIUTILS script would go as:
 
 ```
 from oiutils import oifits, oimodels
-data = oiutils.loadOI(files)
-fit = oimodels.fitOI(data, param)
+data = oifits.loadOI(['file1.fits', 'file2.fits'])
+fit = oimodels.fitOI(data, {'ud':1.0})
 oimodels.showOI(data, fit)
 ```
-In this example, user need to provide a list of OIFITS files in `files` and a first guess parameters dictionary to describe the model, for instance `param={'ud':1.0}` for a 1 milli-arcsecond angular uniform disk diameter.
-
-## Advanced examples
-
-The directory `examples` contains real life examples in the form of Jupyter notebooks:
+In this example, the user needs to provide a list of OIFITS files in `files` and a first guess parameters dictionary to describe the model, for instance `{'ud':1.0}` for a 1 milli-arcsecond angular uniform disk diameter. Many options are available for these basic functions. Check out the advanced examples provided in the package in the directory `examples` in the form of Jupyter notebooks:
 - [Alpha Cen A](https://github.com/amerand/OIUTILS/blob/master/examples/alphaCenA.ipynb) PIONIER data from [Kervalla et al. A&A 597, 137 (2017)](https://ui.adsabs.harvard.edu/abs/2017A%26A...597A.137K/abstract). Fitting V2 with uniform disk or limb-darkened disks.
 - [FU Ori](https://github.com/amerand/OIUTILS/blob/master/examples/FUOri.ipynb) GRAVITY data from [Liu et al. (2019)](https://ui.adsabs.harvard.edu/abs/2019ApJ...884...97L/abstract). Fitting a 2 chromatic components model.
-
 
 ## Model syntax
 
@@ -74,13 +70,14 @@ if none of these is given, the component will be fully resolved (V=0)
 The dimensions will be reduced by a factor cos(i) along the direction perpendicular to the projection angle
 
 ### Slant:
-  `slant`, `slant projang`: definition TBD
+  `slant`: slant in flux along the object (only for uniform disks and rings, not Gaussian). between 0 (None) to 1 (maximum, i.e. one side of the object has 0 flux).
+  `slant projang`: projection angle of the slant, in degrees. 0 is N and 90 is E.
 
 ### Rings:
   Rings are by default uniform in brightness. This can be altered by using
   different keywords:
 - `diam` is the diameter (in mas) and `thick` the thickness. By default, thickness is 1 if omitted.
-- `profile`: radial profile, can be `uniform`, `doughnut`
+- `profile`: radial profile.
 
 Profiles can be arbitrary defined. To achieve this, you can define the profile as a string, as function of other parameters in the dictionary. There are also two special variables: `R` and `MU` where `R`=2*r/`diam` and `MU`=sqrt(1-`R`^2). For example, to model a limb-darkened disk with a power law profile (in `MU`), one will define the model as:
 ```
