@@ -147,10 +147,10 @@ def VsingleOI(oi, param, fov=None, pix=None, dx=0, dy=0):
     # -- arbitrary
     if 'spectrum' in _param.keys():
         sp = _param['spectrum']
-        sp = sp.replace('_WL_', 'res["WL"]')
+        sp = sp.replace('$WL', 'res["WL"]')
         for k in _param.keys():
             if k in sp:
-                sp.replace('_'+k+'_', str(_param[k]))
+                sp.replace('$'+k, str(_param[k]))
         f += eval(sp)
 
     # -- check negativity of spectrum
@@ -305,11 +305,11 @@ def VsingleOI(oi, param, fov=None, pix=None, dx=0, dy=0):
             Ir = 1-((r-np.mean(r))/np.ptp(r)*2)**2
         else:
             # -- generic formula
-            tmp = _param['profile'].replace('_R_', 'r')
-            tmp = tmp.replace('_MU_', 'mu')
+            tmp = _param['profile'].replace('$R', 'r')
+            tmp = tmp.replace('$MU', 'mu')
             for k in _param.keys():
-                if '_'+k+'_' in tmp:
-                    tmp = tmp.replace('_'+k+'_', str(_param[k]))
+                if '$'+k in tmp:
+                    tmp = tmp.replace('$'+k, str(_param[k]))
             Ir = eval(tmp)
 
         _n, _amp, _phi = [], [], []
@@ -828,7 +828,7 @@ def computeLambdaParams(paramsI):
     params = {}
     loop = True
     nloop = 0
-    s = '_' # special character to identify keywords
+    s = '$' # special character to identify keywords
     while loop and nloop<10:
         loop = False
         for k in paramsI.keys():
@@ -837,12 +837,12 @@ def computeLambdaParams(paramsI):
                 tmp = paramsI[k]
                 compute = False
                 for _k in paramsI.keys():
-                    if s+_k+s in paramsI[k]:
-                        tmp = tmp.replace(s+_k+s, str(paramsI[_k]))
+                    if s+_k in paramsI[k]:
+                        tmp = tmp.replace(s+_k, str(paramsI[_k]))
                         compute = True
                 # -- are there still un-computed parameters?
                 for _k in paramsI.keys():
-                    if s+_k+s in tmp:
+                    if s+_k in tmp:
                         # -- set function to another loop
                         loop = True
                         paramsI[k] = tmp
