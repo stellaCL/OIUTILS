@@ -611,9 +611,12 @@ def _fitFunc(pfit, pfitKeys, x, y, err=None, func=None, pfix=None, verbose=False
         err = np.ones(np.array(y).shape)
 
     # -- compute residuals
-    if type(y)==np.ndarray and type(err)==np.ndarray:
-        model = func(x,params)
-        res= ((np.array(y)-model)/err).flatten()
+    if (type(y)==np.ndarray and type(err)==np.ndarray) or \
+            (np.isscalar(y) and type(err)==np.ndarray) or \
+            (type(y)==np.ndarray and np.isscalar(err)) or \
+            (np.isscalar(y) and np.isscalar(err)):
+        model = func(x, params)
+        res = ((np.array(y)-model)/err).flatten()
     else:
         # much slower: this time assumes y (and the result from func) is
         # a list of things, each convertible in np.array

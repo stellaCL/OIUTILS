@@ -493,6 +493,10 @@ def mergeOI(OI, debug=False):
                         res[i0][l][k][t] = np.append(res[i0][l][k][t], oi[l][k][t])
                         res[i0][l][k][t] = res[i0][l][k][t].reshape(s1[0]+s2[0], s1[1])
 
+    for r in res:
+        for k in ['telescopes', 'baselines', 'triangles']:
+            if k in r:
+                r[k] = list(set(r[k]))
     # -- special case for T3 formulas
     # -- match MJDs for T3 computations:
     for r in res:
