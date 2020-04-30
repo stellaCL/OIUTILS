@@ -13,7 +13,6 @@ import scipy.special
 import scipy.interpolate
 import scipy.stats
 
-
 try:
     from oiutils import dpfit
 except:
@@ -21,7 +20,8 @@ except:
 
 _c = np.pi**2/180/3600/1000*1e6
 
-def VsingleOI(oi, param, fov=None, pix=None, dx=0, dy=0):
+def VsingleOI(oi, param, noT3=False,
+             fov=None, pix=None, dx=0, dy=0, timeit=False, indent=0):
     """
     build copy of OI, compute VIS, VIS2 and T3 for a single object parametrized
     with param
@@ -86,6 +86,7 @@ def VsingleOI(oi, param, fov=None, pix=None, dx=0, dy=0):
     'line_i_lorentzian': width for Lorentzian (warning: in nm, not um!)
 
     """
+    t0 = time.time()
     _param = computeLambdaParams(param)
     res = {}
     # -- what do we inherit from original data:
@@ -108,6 +109,7 @@ def VsingleOI(oi, param, fov=None, pix=None, dx=0, dy=0):
         I = None
 
     # -- flux (spectrum)
+    ts = time.time()
     if 'spectrum' in _param.keys():
         f = np.zeros(res['WL'].shape)
     else:
@@ -158,7 +160,9 @@ def VsingleOI(oi, param, fov=None, pix=None, dx=0, dy=0):
     if 'fit' in oi and 'ignore negative flux' in oi['fit'] and \
         oi['fit']['ignore negative flux']:
         negativity = 0.0
-
+    if timeit:
+        print(' '*indent+'VsingleOI > spectrum %.3fms'%(1000*(time.time()-ts)))
+    ts = time.time()
     # -- where to get baseline infos?
     if 'OI_VIS' in oi.keys():
         key = 'OI_VIS'
@@ -408,14 +412,17 @@ def VsingleOI(oi, param, fov=None, pix=None, dx=0, dy=0):
     if du and np.abs(_param['slant'])>1:
         negativity += (np.abs(_param['slant'])-1)
 
+    if timeit:
+        print(' '*indent+'VsingleOI > setup %.3fms'%(1000*(time.time()-ts)))
+
     res['OI_VIS'] = {}
     res['OI_VIS2'] = {}
 
+    tv = time.time()
     for k in baselines:
         # -- for each baseline
         tmp = {}
-        for l in ['u', 'v', 'u/wl', 'v/wl', 'B/wl', 'MJD', 'FLAG']:
-            tmp[l] = oi[key][k][l]
+
         if du: # -- for slanted
             V = Vf(oi[key][k])
             # compute slant from derivative of visibility
@@ -426,32 +433,44 @@ def VsingleOI(oi, param, fov=None, pix=None, dx=0, dy=0):
             # -- see https://en.wikipedia.org/wiki/Fourier_transform#Tables_of_important_Fourier_transforms
             # -- relations 106 and 107
             V = V+1j*(np.sin(_param['slant projang']*np.pi/180)*_param['slant']/diamout*dVdu +
-                     np.cos(_param['slant projang']*np.pi/180)*_param['slant']/diamout*dVdv)
+                      np.cos(_param['slant projang']*np.pi/180)*_param['slant']/diamout*dVdv)
             V *= PHI(oi[key][k])
         else:
             V = Vf(oi[key][k])*PHI(oi[key][k])
 
         tmp['|V|'] = np.abs(V)
-        tmp['EV'] = np.zeros(tmp['|V|'].shape)
         # -- force -180 -> 180
         tmp['PHI'] = (np.angle(V)*180/np.pi+180)%360-180
-        tmp['EPHI'] = np.zeros(tmp['PHI'].shape)
+        # -- not needed, strictly speaking, takes a long time!
+        for l in [#'u', 'v', 'u/wl', 'v/wl', 'B/wl', 'MJD',
+                    'B/wl', 'FLAG']:
+            tmp[l] = oi[key][k][l]
+        #tmp['EV'] = np.zeros(tmp['|V|'].shape)
+        #tmp['EPHI'] = np.zeros(tmp['PHI'].shape)
         res['OI_VIS'][k] = tmp
         if 'OI_VIS2' in oi.keys():
             tmp = {}
-            for l in ['u', 'v', 'u/wl', 'v/wl', 'B/wl', 'MJD', 'FLAG']:
-                tmp[l] = oi['OI_VIS2'][k][l]
-            tmp['V2'] = np.abs(V)**2
-            tmp['EV2'] = np.zeros(tmp['V2'].shape)
-            res['OI_VIS2'][k] = tmp
 
-    if 'OI_T3' in oi.keys():
+            # -- not needed, strictly speaking, takes a long time!
+            for l in [#'u', 'v', 'u/wl', 'v/wl',  'MJD',
+                      'B/wl', 'FLAG']:
+                tmp[l] = oi['OI_VIS2'][k][l]
+            #tmp['EV2'] = np.zeros(tmp['V2'].shape)
+
+            tmp['V2'] = np.abs(V)**2
+            res['OI_VIS2'][k] = tmp
+    if timeit:
+        print(' '*indent+'VsingleOI > complex vis %.3fms'%(1000*(time.time()-tv)))
+    if 'OI_T3' in oi.keys() and not noT3:
+        t3 = time.time()
         res['OI_T3'] = {}
         for k in oi['OI_T3'].keys():
             res['OI_T3'][k] = {}
             for l in ['u1', 'u2', 'v1', 'v2', 'MJD', 'formula', 'FLAG', 'Bmax/wl']:
                 res['OI_T3'][k][l] = oi['OI_T3'][k][l]
         res = computeT3fromVisOI(res)
+        if timeit:
+            print(' '*indent+'VsingleOI > T3 from V %.3fms'%(1000*(time.time()-t3)))
 
     if not I is None:
         # -- normalize image to total flux, useful for adding
@@ -510,25 +529,28 @@ def VfromImageOI(oi):
     oi = computeNormFluxOI(oi)
     return oi
 
-def VmodelOI(oi, p, fov=None, pix=None, dx=0.0, dy=0.0, timeit=False):
+def VmodelOI(oi, p, fov=None, pix=None, dx=0.0, dy=0.0, timeit=False, indent=0):
     param = computeLambdaParams(p)
     if type(oi) == list:
         return [VmodelOI(o, param, fov=fov, pix=pix, dx=dx, dy=dy,
-                        timeit=timeit) for o in oi]
+                        timeit=timeit, indent=indent) for o in oi]
     # -- split in components if needed
     comp = set([x.split(',')[0].strip() for x in param.keys() if ',' in x])
     if len(comp)==0:
-        return VsingleOI(oi, param, fov=fov, pix=pix, dx=dx, dy=dy)
-
+        return VsingleOI(oi, param, fov=fov, pix=pix, dx=dx, dy=dy,
+                         timeit=timeit, indent=indent+1)
+    tinit = time.time()
     res = {} # -- triggers initialisation below
     t0 = time.time()
     for c in comp:
+        tc = time.time()
         # -- this component. Assumes all param without ',' are common to all
         _param = {k.split(',')[1].strip():param[k] for k in param.keys() if
                   k.startswith(c+',')}
         _param.update({k:param[k] for k in param.keys() if not ',' in k})
         if res=={}:
-            res = VsingleOI(oi, _param, fov=fov, pix=pix, dx=dx, dy=dy)
+            res = VsingleOI(oi, _param, fov=fov, pix=pix, dx=dx, dy=dy,
+                            timeit=timeit, indent=indent+1, noT3=True)
             if 'image' in res['MODEL'].keys():
                 res['MODEL'][c+',image'] = res['MODEL']['image']
                 res['MODEL']['cube'] = res['MODEL']['image'][None,:,:]*res['MODEL']['totalflux'][:,None,None]
@@ -542,7 +564,8 @@ def VmodelOI(oi, p, fov=None, pix=None, dx=0.0, dy=0.0, timeit=False):
                                     np.exp(1j*np.pi*res['OI_VIS'][k]['PHI']/180)
             m = {}
         else:
-            m = VsingleOI(oi, _param, fov=fov, pix=pix, dx=dx, dy=dy)
+            m = VsingleOI(oi, _param, fov=fov, pix=pix, dx=dx, dy=dy,
+                        timeit=timeit, indent=indent+1, noT3=True)
             if 'image' in m['MODEL'].keys():
                 res['MODEL'][c+',image'] = m['MODEL']['image']
                 res['MODEL']['image'] += np.mean(m['MODEL']['totalflux'])*\
@@ -556,10 +579,8 @@ def VmodelOI(oi, p, fov=None, pix=None, dx=0.0, dy=0.0, timeit=False):
             for k in res['OI_VIS'].keys():
                 res['MOD_VIS'][k] += m['MODEL']['totalflux'][None,:]*m['OI_VIS'][k]['|V|']*\
                                 np.exp(1j*np.pi*m['OI_VIS'][k]['PHI']/180)
-
-    if timeit:
-        print('VmodelOI > VsingleOI (x%d) %.3fms'%(len(comp),
-                                                   1000*(time.time()-t0)))
+        if timeit:
+            print(' '*indent+'VmodelOI > VsingleOI "%s" %.3fms'%(c, 1000*(time.time()-tc)))
 
     t0 = time.time()
     # -- normalise by total flux, compute OI_VIS and OI_VIS2
@@ -583,7 +604,7 @@ def VmodelOI(oi, p, fov=None, pix=None, dx=0.0, dy=0.0, timeit=False):
                                  'MJD': oi['OI_FLUX'][k]['MJD'],
             }
     if timeit:
-        print('VmodelOI > fluxes %.3fms'%(1000*(time.time()-t0)))
+        print(' '*indent+'VmodelOI > fluxes %.3fms'%(1000*(time.time()-t0)))
 
     t0 = time.time()
     if 'OI_T3' in oi.keys():
@@ -594,18 +615,18 @@ def VmodelOI(oi, p, fov=None, pix=None, dx=0.0, dy=0.0, timeit=False):
                 res['OI_T3'][k][l] = oi['OI_T3'][k][l]
         res = computeT3fromVisOI(res)
         if timeit:
-            print('VmodelOI > T3 %.3fms'%(1000*(time.time()-t0)))
+            print(' '*indent+'VmodelOI > T3 %.3fms'%(1000*(time.time()-t0)))
 
     t0 = time.time()
     if 'fit' in oi and 'obs' in oi['fit'] and 'DPHI' in oi['fit']['obs']:
         res = computeDiffPhiOI(res, param)
         if timeit:
-            print('VmodelOI > dPHI %.3fms'%(1000*(time.time()-t0)))
+            print(' '*indent+'VmodelOI > dPHI %.3fms'%(1000*(time.time()-t0)))
             t0 = time.time()
     if 'fit' in oi and 'obs' in oi['fit'] and 'NFLUX' in oi['fit']['obs']:
         res = computeNormFluxOI(res, param)
         if timeit:
-            print('VmodelOI > normFlux %.3fms'%(1000*(time.time()-t0)))
+            print(' '*indent+'VmodelOI > normFlux %.3fms'%(1000*(time.time()-t0)))
 
     for k in['telescopes', 'baselines', 'triangles']:
         if k in oi:
@@ -621,28 +642,33 @@ def VmodelOI(oi, p, fov=None, pix=None, dx=0.0, dy=0.0, timeit=False):
         ker /= np.sum(ker)
         if 'NFLUX' in res.keys():
             for k in res['NFLUX'].keys():
-                for i in range(len(res['NFLUX'][k]['MJD'])):
+                for i in range(res['NFLUX'][k]['NFLUX'].shape[0]):
                     res['NFLUX'][k]['NFLUX'][i] = np.convolve(
                                 res['NFLUX'][k]['NFLUX'][i], ker, mode='same')
         for k in res['OI_VIS'].keys():
-            for i in range(len(res['OI_VIS'][k]['MJD'])):
+            for i in range(res['OI_VIS'][k]['|V|'].shape[0]):
                 res['OI_VIS'][k]['|V|'][i] = np.convolve(
                             res['OI_VIS'][k]['|V|'][i], ker, mode='same')
                 res['OI_VIS'][k]['PHI'][i] = np.convolve(
                             res['OI_VIS'][k]['PHI'][i], ker, mode='same')
-                res['OI_VIS2'][k]['V2'][i] = np.convolve(
-                            res['OI_VIS2'][k]['V2'][i], ker, mode='same')
                 if 'DPHI' in res.keys():
                     res['DPHI'][k]['DPHI'][i] = np.convolve(
                                 res['DPHI'][k]['DPHI'][i], ker, mode='same')
+        for k in res['OI_VIS2'].keys():
+            for i in range(res['OI_VIS2'][k]['V2'].shape[0]):
+                res['OI_VIS2'][k]['V2'][i] = np.convolve(
+                            res['OI_VIS2'][k]['V2'][i], ker, mode='same')
         for k in res['OI_T3'].keys():
-            for i in range(len(res['OI_T3'][k]['MJD'])):
+            for i in range(res['OI_T3'][k]['MJD'].shape[0]):
                 res['OI_T3'][k]['T3PHI'][i] = np.convolve(
                             res['OI_T3'][k]['T3PHI'][i], ker, mode='same')
                 res['OI_T3'][k]['T3AMP'][i] = np.convolve(
                             res['OI_T3'][k]['T3AMP'][i], ker, mode='same')
         if timeit:
-            print('VmodelOI > convolve %.3fms'%(1000*(time.time()-t0)))
+            print(' '*indent+'VmodelOI > convolve %.3fms'%(1000*(time.time()-t0)))
+    if timeit:
+        print(' '*indent+'VmodelOI > total %.3fms'%(1000*(time.time()-tinit)))
+
     return res
 
 def computeDiffPhiOI(oi, param=None, order='auto'):
@@ -710,10 +736,13 @@ def computeDiffPhiOI(oi, param=None, order='auto'):
 
         data = np.array(data)
         oi['DPHI'][k] = {'DPHI':data,
-                         'EDPHI':oi['OI_VIS'][k]['EPHI'],
                          'FLAG':oi['OI_VIS'][k]['FLAG'],
-                         'MJD':oi['OI_VIS'][k]['MJD'],
                          }
+        if 'MJD' in oi['OI_VIS'][k]:
+            oi['DPHI'][k]['MJD'] = oi['OI_VIS'][k]['MJD']
+        if 'EPHI' in oi['OI_VIS'][k]:
+            oi['DPHI'][k]['EDPHI'] = oi['OI_VIS'][k]['EPHI']
+
     if 'IM_VIS' in oi.keys():
         for k in oi['IM_VIS'].keys():
             data = []
@@ -887,7 +916,6 @@ def computeT3fromVisOI(oi):
             # -- force -180 -> 180 degrees
             oi['OI_T3'][k]['T3PHI'] = (oi['OI_T3'][k]['T3PHI']+180)%360-180
             oi['OI_T3'][k]['ET3PHI'] = np.zeros(oi['OI_T3'][k]['T3PHI'].shape)
-
             oi['OI_T3'][k]['T3AMP'] = np.abs(oi['OI_VIS'][t[0]]['|V|'][w0,:])*\
                                     np.abs(oi['OI_VIS'][t[1]]['|V|'][w1,:])*\
                                     np.abs(oi['OI_VIS'][t[2]]['|V|'][w2,:])
@@ -1295,8 +1323,8 @@ def bootstrapFitOI(oi, fit, N=None, fitOnly=None, doNotFit=None, maxfev=2000,
     firstGuess = fit['best']
 
     kwargs = {'maxfev':maxfev, 'ftol':ftol, 'verbose':False,
-              'randomise':randomise, 'fitOnly':fitOnly, 'doNotFit':doNotFit,
-              'prior':prior, 'iter':-1}
+              'fitOnly':fitOnly, 'doNotFit':doNotFit,
+              'randomise':True, 'prior':prior, 'iter':-1}
 
     res = []
     if multi:
@@ -1325,7 +1353,7 @@ def bootstrapFitOI(oi, fit, N=None, fitOnly=None, doNotFit=None, maxfev=2000,
                 res.append(pool.apply_async(fitOI, (oi,firstGuess, ), kwargs))
             pool.close()
             pool.join()
-            res = res[:Np]+[r.get(timeout=1) for r in res[np:]]
+            res = res[:Np]+[r.get(timeout=1) for r in res[Np:]]
     else:
         Np = 1
         t = time.time()
@@ -1684,9 +1712,9 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
 
     if figWidth is None and figHeight is None:
         figHeight =  min(max(ncol, 8), 4)
-        figWidth = min(figHeight*ncol, 12)
+        figWidth = min(figHeight*ncol, 9.5)
     if figWidth is None and not figHeight is None:
-        figWidth = min(figHeight*ncol, 12)
+        figWidth = min(figHeight*ncol, 9.5)
     if not figWidth is None and figHeight is None:
         figHeight =  max(figWidth/ncol, 6)
 
@@ -2152,9 +2180,9 @@ def showModel(oi, param, m=None, fig=1, figHeight=4, figWidth=None, fov=None, pi
 
     if figWidth is None and figHeight is None:
         figHeight =  min(max(nplot, 8), 4)
-        figWidth = min(figHeight*nplot, 12)
+        figWidth = min(figHeight*nplot, 9.5)
     if figWidth is None and not figHeight is None:
-        figWidth = min(figHeight*nplot, 12)
+        figWidth = min(figHeight*nplot, 9.5)
     if not figWidth is None and figHeight is None:
         figHeight =  max(figWidth/nplot, 6)
 
@@ -2331,7 +2359,7 @@ def showBootstrap(boot, fig=1, figWidth=None,
     global _AX, _AY
 
     if figWidth is None:
-        figWidth = min(9, 1+2*len(boot['fitOnly']))
+        figWidth = min(9.5, 1+2*len(boot['fitOnly']))
 
     fontsize = max(min(4*figWidth/len(boot['fitOnly']), 14), 6)
     plt.close(fig)

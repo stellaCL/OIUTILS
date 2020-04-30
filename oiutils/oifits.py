@@ -145,16 +145,18 @@ def loadOI(filename, insname=None, targname=None, verbose=True,
             for k in set(sta2):
                 w = (np.array(sta2)==k)*(hdu.data['TARGET_ID']==targets[targname])
                 if k in res['OI_VIS2']:
-                    for k1, k2 in [('V2', 'VIS2DATA'), ('EV2', 'VIS2ERR')]:
+                    for k1, k2 in [('V2', 'VIS2DATA'), ('EV2', 'VIS2ERR'), ('FLAG', 'FLAG')]:
                         res['OI_VIS2'][k][k1] = np.append(res['OI_VIS2'][k][k1],
-                                                        hdu.data[k2][w,:], axis=0)
-                    for k1, k2 in [('u', 'UCOORD'), ('v', 'VCOORD'),('MJD','MJD')]:
+                                                          hdu.data[k2][w,:], axis=0)
+                    for k1, k2 in [('u', 'UCOORD'), ('v', 'VCOORD'), ('MJD','MJD')]:
                         res['OI_VIS2'][k][k1] = np.append(res['OI_VIS2'][k][k1],
                                                           hdu.data[k2][w])
                     tmp = hdu.data['UCOORD'][w][:,None]/res['WL'][None,:]
-                    res['OI_VIS2'][k]['u/wl'] = np.append(res['OI_VIS2'][k]['u/wl'], tmp)
+                    res['OI_VIS2'][k]['u/wl'] = np.append(res['OI_VIS2'][k]['u/wl'], tmp, axis=0)
+
                     tmp = hdu.data['VCOORD'][w][:,None]/res['WL'][None,:]
-                    res['OI_VIS2'][k]['v/wl'] = np.append(res['OI_VIS2'][k]['v/wl'], tmp)
+                    res['OI_VIS2'][k]['v/wl'] = np.append(res['OI_VIS2'][k]['v/wl'], tmp, axis=0)
+
                     res['OI_VIS2'][k]['FLAG'] = np.logical_or(res['OI_VIS2'][k]['FLAG'],
                                                               ~np.isfinite(res['OI_VIS2'][k]['V2']))
                     res['OI_VIS2'][k]['FLAG'] = np.logical_or(res['OI_VIS2'][k]['FLAG'],
@@ -189,16 +191,17 @@ def loadOI(filename, insname=None, targname=None, verbose=True,
                 w = (np.array(sta2)==k)*(hdu.data['TARGET_ID']==targets[targname])
                 if k in res['OI_VIS']:
                     for k1, k2 in [('|V|', 'VIS2AMP'), ('E|V|', 'VISAMPERR'),
-                                    ('PHI', 'VISPHI'), ('EPHI', 'VISPHIERR')]:
+                                    ('PHI', 'VISPHI'), ('EPHI', 'VISPHIERR'),
+                                    ('FLAG', 'FLAG')]:
                         res['OI_VIS'][k][k1] = np.append(res['OI_VIS'][k][k1],
                                                          hdu.data[k2][w,:], axis=0)
                     for k1, k2 in [('u', 'UCOORD'), ('v', 'VCOORD'), ('MJD', 'MJD')]:
                         res['OI_VIS'][k][k1] = np.append(res['OI_VIS'][k][k1],
                                                           hdu.data[k2][w])
                     tmp = hdu.data['UCOORD'][w][:,None]/res['WL'][None,:]
-                    res['OI_VIS'][k]['u/wl'] = np.append(res['OI_VIS'][k]['u/wl'], tmp)
+                    res['OI_VIS'][k]['u/wl'] = np.append(res['OI_VIS'][k]['u/wl'], tmp, axis=0)
                     tmp = hdu.data['VCOORD'][w][:,None]/res['WL'][None,:]
-                    res['OI_VIS'][k]['v/wl'] = np.append(res['OI_VIS'][k]['v/wl'], tmp)
+                    res['OI_VIS'][k]['v/wl'] = np.append(res['OI_VIS'][k]['v/wl'], tmp, axis=0)
                     res['OI_VIS'][k]['FLAG'] = np.logical_or(res['OI_VIS'][k]['FLAG'],
                                                              ~np.isfinite(res['OI_VIS'][k]['|V|']))
                     res['OI_VIS'][k]['FLAG'] = np.logical_or(res['OI_VIS'][k]['FLAG'],
@@ -265,7 +268,8 @@ def loadOI(filename, insname=None, targname=None, verbose=True,
 
                 if k in res['OI_T3']:
                     for k1, k2 in [('T3AMP', 'T3AMP'), ('ET3AMP', 'T3AMPERR'),
-                                    ('T3PHI', 'T3PHI'), ('ET3PHI', 'T3PHIERR'),]:
+                                    ('T3PHI', 'T3PHI'), ('ET3PHI', 'T3PHIERR'),
+                                    ('FLAG', 'FLAG')]:
                         res['OI_T3'][k][k1] = np.append(res['OI_T3'][k][k1],
                                                         hdu.data[k2][w,:], axis=0)
                     for k1, k2 in [('u1', 'U1COORD'), ('u2', 'U2COORD'),

@@ -468,6 +468,7 @@ def leastsqFit(func, x, params, y, err=None, fitOnly=None,
     if fullOutput:
         cor = np.sqrt(np.diag(cov))
         cor = cor[:,None]*cor[None,:]
+        cor[cor==0] = 1e-6
         cor = cov/cor
         pfix= {#'func':func,
                 'best':pfix, 'uncer':uncer,
@@ -482,6 +483,7 @@ def leastsqFit(func, x, params, y, err=None, fitOnly=None,
                          for i,ki in enumerate(fitOnly)},
                'normalized uncertainties':normalizedUncer,
                'maxfev':maxfev,
+               'firstGuess':params,
         }
         if type(verbose)==int and verbose>1 and np.size(cor)>1:
             dispCor(pfix)
