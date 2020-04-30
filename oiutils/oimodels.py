@@ -1279,6 +1279,8 @@ def bootstrapFitOI(oi, fit, N=None, fitOnly=None, doNotFit=None, maxfev=2000,
                 'NFLUX':'NFLUX', # flux normalized to continuum
                 'FLUX':'OI_FLUX' # flux, corrected from tellurics
                 }
+        if type(oi)==dict:
+            oi = [oi]
         for o in oi:
             for p in o['fit']['obs']:
                 for k in o[ext[p]].keys():
@@ -1299,33 +1301,33 @@ def bootstrapFitOI(oi, fit, N=None, fitOnly=None, doNotFit=None, maxfev=2000,
     res = []
     if multi:
         if type(multi)!=int:
-            np = min(multiprocessing.cpu_count(), N)
+            Np = min(multiprocessing.cpu_count(), N)
         else:
-            np = min(multi, N)
+            Np = min(multi, N)
         print('running', N, 'fits...')
-        # -- estimate fitting time by running 'np' fit in parallel
+        # -- estimate fitting time by running 'Np' fit in parallel
         t = time.time()
-        pool = multiprocessing.Pool(np)
-        for i in range(min(np, N)):
+        pool = multiprocessing.Pool(Np)
+        for i in range(min(Np, N)):
             kwargs['iter'] = i
             res.append(pool.apply_async(fitOI, (oi, firstGuess, ), kwargs))
         pool.close()
         pool.join()
         res = [r.get(timeout=1) for r in res]
         print('one fit takes ~%.2fs using %d threads'%(
-                (time.time()-t)/min(np, N), np))
+                (time.time()-t)/min(Np, N), Np))
 
         # -- run the remaining
-        if N>np:
-            pool = multiprocessing.Pool(np)
-            for i in range(max(N-np, 0)):
-                kwargs['iter'] = np+i
+        if N>Np:
+            pool = multiprocessing.Pool(Np)
+            for i in range(max(N-Np, 0)):
+                kwargs['iter'] = Np+i
                 res.append(pool.apply_async(fitOI, (oi,firstGuess, ), kwargs))
             pool.close()
             pool.join()
-            res = res[:np]+[r.get(timeout=1) for r in res[np:]]
+            res = res[:Np]+[r.get(timeout=1) for r in res[np:]]
     else:
-        np = 1
+        Np = 1
         t = time.time()
         res.append(fitOI(oi, firstGuess, **kwargs))
         print('one fit takes ~%.2fs'%(time.time()-t))

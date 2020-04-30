@@ -388,7 +388,7 @@ def loadOI(filename, insname=None, targname=None, verbose=True,
 
     return res
 
-def mergeOI(OI, debug=False):
+def mergeOI(OI, verbose=True, debug=False):
     """
     takes OI, a list of oifits files readouts (from loadOI), and merge them into
     a smaller number of entities based with same spectral coverage
@@ -519,7 +519,17 @@ def mergeOI(OI, debug=False):
                 r['OI_T3'][k]['formula'] = [s, t, _w0, _w1, _w2]
 
     # -- keep only master oi's, which contains merged data:
-    #return [OI[i] for i in range(len(OI)) if master[i]]
+    if verbose:
+        print('mergeOI:', len(oi), 'data files merged into', len(res), end=' ')
+        if len(res)>1:
+            print('dictionnaries with unique setups:')
+        else:
+            print('dictionnary with a unique setup:')
+
+        for i, m in enumerate(res):
+            print(' [%d]'%i, m['insname'], ' %d wavelengths:'%len(m['WL']),
+                    m['WL'][0], '..', m['WL'][-1], 'um', end='\n  ')
+            print('\n  '.join(m['filename'].split(';')))
     return res
 
 def medianFilt(oi, kernel_size=None):
