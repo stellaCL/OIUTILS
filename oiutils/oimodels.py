@@ -668,7 +668,6 @@ def VmodelOI(oi, p, fov=None, pix=None, dx=0.0, dy=0.0, timeit=False, indent=0):
             print(' '*indent+'VmodelOI > convolve %.3fms'%(1000*(time.time()-t0)))
     if timeit:
         print(' '*indent+'VmodelOI > total %.3fms'%(1000*(time.time()-tinit)))
-
     return res
 
 def computeDiffPhiOI(oi, param=None, order='auto'):
@@ -903,22 +902,21 @@ def computeT3fromVisOI(oi):
     if 'OI_T3' in oi.keys():
         for k in oi['OI_T3'].keys():
             s, t, w0, w1, w2 = oi['OI_T3'][k]['formula']
-            try:
+            if np.isscalar(s[0]):
                 oi['OI_T3'][k]['T3PHI'] = s[0]*oi['OI_VIS'][t[0]]['PHI'][w0,:]+\
                                           s[1]*oi['OI_VIS'][t[1]]['PHI'][w1,:]+\
                                           s[2]*oi['OI_VIS'][t[2]]['PHI'][w2,:]
-            except:
-                print(k, oi['OI_T3'][k]['MJD'])
-                print(t[0], oi['OI_VIS'][t[0]]['MJD'], w0)
-                print(t[1], oi['OI_VIS'][t[1]]['MJD'], w1)
-                print(t[2], oi['OI_VIS'][t[2]]['MJD'], w2)
+            else:
+                oi['OI_T3'][k]['T3PHI'] = s[0][:,None]*oi['OI_VIS'][t[0]]['PHI'][w0,:]+\
+                                          s[1][:,None]*oi['OI_VIS'][t[1]]['PHI'][w1,:]+\
+                                          s[2][:,None]*oi['OI_VIS'][t[2]]['PHI'][w2,:]
 
             # -- force -180 -> 180 degrees
             oi['OI_T3'][k]['T3PHI'] = (oi['OI_T3'][k]['T3PHI']+180)%360-180
             oi['OI_T3'][k]['ET3PHI'] = np.zeros(oi['OI_T3'][k]['T3PHI'].shape)
             oi['OI_T3'][k]['T3AMP'] = np.abs(oi['OI_VIS'][t[0]]['|V|'][w0,:])*\
-                                    np.abs(oi['OI_VIS'][t[1]]['|V|'][w1,:])*\
-                                    np.abs(oi['OI_VIS'][t[2]]['|V|'][w2,:])
+                                      np.abs(oi['OI_VIS'][t[1]]['|V|'][w1,:])*\
+                                      np.abs(oi['OI_VIS'][t[2]]['|V|'][w2,:])
             oi['OI_T3'][k]['ET3AMP'] = np.zeros(oi['OI_T3'][k]['T3AMP'].shape)
     if 'IM_VIS' in oi.keys():
         oi['IM_T3'] = {}
@@ -928,9 +926,14 @@ def computeT3fromVisOI(oi):
                                'MJD':oi['OI_T3'][k]['MJD'],
                                'Bmax/wl':oi['OI_T3'][k]['Bmax/wl']}
             s, t, w0, w1, w2 = oi['OI_T3'][k]['formula']
-            oi['IM_T3'][k]['T3PHI'] = s[0]*oi['IM_VIS'][t[0]]['PHI'][w0,:]+\
-                                       s[1]*oi['IM_VIS'][t[1]]['PHI'][w1,:]+\
-                                       s[2]*oi['IM_VIS'][t[2]]['PHI'][w2,:]
+            if np.isscalar(s[0]):
+                oi['IM_T3'][k]['T3PHI'] = s[0]*oi['IM_VIS'][t[0]]['PHI'][w0,:]+\
+                                          s[1]*oi['IM_VIS'][t[1]]['PHI'][w1,:]+\
+                                          s[2]*oi['IM_VIS'][t[2]]['PHI'][w2,:]
+            else:
+                oi['IM_T3'][k]['T3PHI'] = s[0][:,None]*oi['IM_VIS'][t[0]]['PHI'][w0,:]+\
+                                          s[1][:,None]*oi['IM_VIS'][t[1]]['PHI'][w1,:]+\
+                                          s[2][:,None]*oi['IM_VIS'][t[2]]['PHI'][w2,:]
 
             # -- force -180 -> 180 degrees
             oi['IM_T3'][k]['T3PHI'] = (oi['IM_T3'][k]['T3PHI']+180)%360-180

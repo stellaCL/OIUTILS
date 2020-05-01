@@ -392,10 +392,11 @@ def loadOI(filename, insname=None, targname=None, verbose=True,
 
     return res
 
-def mergeOI(OI, verbose=True, debug=False):
+def mergeOI(OI, allInOne=True, verbose=True, debug=False):
     """
     takes OI, a list of oifits files readouts (from loadOI), and merge them into
     a smaller number of entities based with same spectral coverage
+
 
     TODO: how polarisation in handled?
     """
@@ -444,7 +445,7 @@ def mergeOI(OI, verbose=True, debug=False):
             for mjd in oi['configurations per MJD']:
                 if not mjd in res[i0]['configurations per MJD']:
                     res[i0]['configurations per MJD'][mjd] = \
-                        oi['configurations per MJD'][mjd]
+                         oi['configurations per MJD'][mjd]
                 else:
                     for k in oi['configurations per MJD'][mjd]:
                         if not k in res[i0]['configurations per MJD'][mjd]:
@@ -532,9 +533,102 @@ def mergeOI(OI, verbose=True, debug=False):
 
         for i, m in enumerate(res):
             print(' [%d]'%i, m['insname'], ' %d wavelengths:'%len(m['WL']),
-                    m['WL'][0], '..', m['WL'][-1], 'um', end='\n  ')
+                    m['WL'][0], '..', m['WL'][-1], 'um', end=' ')
+            print(m['baselines'], end='\n  ')
             print('\n  '.join(m['filename'].split(';')))
+    if allInOne:
+        res = _allInOneOI(res, verbose=verbose, debug=debug)
     return res
+
+def _allInOneOI(oi, verbose=False, debug=False):
+    """
+    allInOne:
+    - averages fluxes per MJD
+    - puts all baselines / triangles in same dict
+
+    """
+    if type(oi)==list:
+        return [_allInOneOI(o, verbose=verbose, debug=debug) for o in oi]
+
+    if 'OI_FLUX' in oi:
+        fluxes = {}
+        weights = {}
+        names = {}
+        for k in oi['OI_FLUX'].keys():
+            for j,mjd in enumerate(oi['OI_FLUX'][k]['MJD']):
+                mask = ~oi['OI_FLUX'][k]['FLAG'][j,:]
+                if not mjd in fluxes:
+                    fluxes[mjd] = np.zeros(len(oi['WL']))
+                    weights[mjd] = np.zeros(len(oi['WL']))
+                    names[mjd] = ''
+                fluxes[mjd][mask] += oi['OI_FLUX'][k]['FLUX'][j,mask]/\
+                        oi['OI_FLUX'][k]['EFLUX'][j,mask]
+                weights[mjd][mask] += 1/oi['OI_FLUX'][k]['EFLUX'][j,mask]
+                names[mjd] += k
+        flags = {}
+        efluxes = {}
+        for mjd in fluxes.keys():
+            mask = weights[mjd]>0
+            fluxes[mjd][mask] /= weights[mjd][mask]
+            flags[mjd] = ~mask
+            efluxes[mjd] = np.zeros(len(oi['WL']))
+            efluxes[mjd][mask] = 1/weights[mjd][mask]
+        oi['OI_FLUX']['all'] = {
+            'FLUX': np.array([fluxes[mjd] for mjd in fluxes.keys()]),
+            'EFLUX': np.array([efluxes[mjd] for mjd in fluxes.keys()]),
+            'FLAG': np.array([flags[mjd] for mjd in fluxes.keys()]),
+            'NAME': np.array([names[mjd] for mjd in fluxes.keys()]),
+            'MJD': np.array(list(fluxes.keys())),
+            }
+
+    for e in filter(lambda x: x in oi.keys(), ['OI_VIS', 'OI_VIS2', 'OI_T3']):
+        tmp = {'NAME':[]}
+        for k in filter(lambda x: x!='all', oi[e].keys()): # each Tel/B/Tri
+            tmp['NAME'].extend([k for i in range(len(oi[e][k]['MJD']))])
+            for d in oi[e][k].keys(): # each data type
+                if not d in tmp:
+                    if type(oi[e][k][d])==list:
+                        tmp[d] = [tuple(oi[e][k][d])]*len(oi[e][k]['MJD'])
+                    else:
+                        tmp[d] = oi[e][k][d]
+                else:
+                    if type(oi[e][k][d])==list:
+                        tmp[d].extend([tuple(oi[e][k][d])]*len(oi[e][k]['MJD']))
+                    elif type(oi[e][k][d])==np.ndarray:
+                        if oi[e][k][d].ndim==1:
+                            tmp[d] = np.append(tmp[d], oi[e][k][d])
+                        elif oi[e][k][d].ndim==2:
+                            tmp[d] = np.append(tmp[d], oi[e][k][d], axis=0)
+                    else:
+                        print('allInOneOI warning: unknow data', e, d)
+        tmp['NAME'] = np.array(tmp['NAME'])
+        oi[e]['all'] = tmp
+
+    if 'OI_T3' in oi:
+        key = 'OI_VIS'
+        if not key in oi:
+            key = 'OI_VIS2'
+        # -- recompute formula for T3
+        _w0, _w1, _w2 = [], [], []
+        _s0, _s1, _s2 = [], [], []
+        for i,mjd in enumerate(oi['OI_T3']['all']['MJD']):
+            s, t, w0, w1, w2 = oi['OI_T3']['all']['formula'][i]
+            _s0.append(s[0])
+            _s1.append(s[1])
+            _s2.append(s[2])
+            _w0.append(np.argmin(abs(oi[key]['all']['MJD']-mjd)+(oi[key]['all']['NAME']!=t[0])))
+            _w1.append(np.argmin(abs(oi[key]['all']['MJD']-mjd)+(oi[key]['all']['NAME']!=t[1])))
+            _w2.append(np.argmin(abs(oi[key]['all']['MJD']-mjd)+(oi[key]['all']['NAME']!=t[2])))
+        s = np.array(_s0), np.array(_s1), np.array(_s2)
+        oi['OI_T3']['all']['formula'] = [s, ('all', 'all', 'all'), _w0, _w1, _w2]
+    for e in filter(lambda x: x.startswith('OI_'), oi.keys()):
+        for k in list(oi[e].keys()):
+            if k!='all':
+                oi[e].pop(k)
+    oi['telescopes'] = ['all']
+    oi['baselines'] = ['all']
+    oi['triangles'] = ['all']
+    return oi
 
 def medianFilt(oi, kernel_size=None):
     """
