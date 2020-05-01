@@ -26,7 +26,7 @@ def fitMap(oi, firstGuess=None, fitAlso=[], rmin=1, rmax=20, rstep=1.,
 
     fitOnly = ['c,f', 'c,x', 'c,y']
     if type(fitAlso):
-        fitAlso.extend(fitAlso)
+        fitOnly.extend(fitAlso)
 
     kwargs = {'maxfev':1000, 'ftol':1e-4, 'verbose':False,
             'fitOnly':fitOnly, }
@@ -62,8 +62,8 @@ def fitMap(oi, firstGuess=None, fitAlso=[], rmin=1, rmax=20, rstep=1.,
         pool.close()
         pool.join()
         res = [r.get(timeout=1) for r in res]
-        print('one fit takes ~%.2fs using %d threads'%(
-                (time.time()-t)/min(Np, N), Np))
+        print('initial estimate: %.1f fit per minute using %d threads'%(
+               60/(time.time()-t)*min(Np, N), Np))
 
         # -- run the remaining
         if N>Np:
@@ -89,8 +89,8 @@ def fitMap(oi, firstGuess=None, fitAlso=[], rmin=1, rmax=20, rstep=1.,
             tmp['c,x'] = X[Np+i]
             tmp['c,y'] = Y[Np+i]
             res.append(oimodels.fitOI(oi, tmp, **kwargs))
-    print('it took %.1fs, %.2fs per fit on average'%(time.time()-t,
-                                                    (time.time()-t)/N))
+    print('it took %.1fs, %.0f fit per minute on average'%(time.time()-t,
+                                                    60/(time.time()-t)*N))
 
     # -- show displacement of fit:
     for r in res:
@@ -117,7 +117,7 @@ def fitMap(oi, firstGuess=None, fitAlso=[], rmin=1, rmax=20, rstep=1.,
         if not dupl:
             uni.append(r)
     print('%d minima -> %d unique solutions'%(len(res), len(uni)))
-
+    uni = sorted(uni, key=lambda x: x['chi2'])
     plt.scatter([f['best']['c,x'] for f in uni],
                 [f['best']['c,y'] for f in uni],
                 c = [np.log10(f['chi2']) for f in uni],
@@ -133,4 +133,4 @@ def fitMap(oi, firstGuess=None, fitAlso=[], rmin=1, rmax=20, rstep=1.,
     #            '%.2f'%(u['best']['c,f']))
     plt.colorbar(label=r'log$_{10}$ $\chi^2$')
     ax.invert_xaxis()
-    return res
+    return uni
