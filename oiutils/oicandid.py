@@ -52,8 +52,8 @@ def fitMap(oi, firstGuess=None, fitAlso=[], rmin=1, rmax=20, rstep=1.,
             Np = min(multi, N)
         print('running', N, 'fits...')
         # -- estimate fitting time by running 'Np' fit in parallel
-        t = time.time()
         pool = multiprocessing.Pool(Np)
+        t = time.time()
         for i in range(min(Np, N)):
             tmp = firstGuess.copy()
             tmp['c,x'] = X[i]
@@ -61,10 +61,9 @@ def fitMap(oi, firstGuess=None, fitAlso=[], rmin=1, rmax=20, rstep=1.,
             res.append(pool.apply_async(oimodels.fitOI, (oi, tmp, ), kwargs))
         pool.close()
         pool.join()
+        print('initial estimate: %.1f fit per minute using %d threads (%.0fms per fit)'%(
+               60/(time.time()-t)*min(Np, N), Np, 1000*(time.time()-t)/min(Np, N)))
         res = [r.get(timeout=1) for r in res]
-        print('initial estimate: %.1f fit per minute using %d threads'%(
-               60/(time.time()-t)*min(Np, N), Np))
-
         # -- run the remaining
         if N>Np:
             pool = multiprocessing.Pool(Np)
@@ -89,8 +88,8 @@ def fitMap(oi, firstGuess=None, fitAlso=[], rmin=1, rmax=20, rstep=1.,
             tmp['c,x'] = X[Np+i]
             tmp['c,y'] = Y[Np+i]
             res.append(oimodels.fitOI(oi, tmp, **kwargs))
-    print('it took %.1fs, %.0f fit per minute on average'%(time.time()-t,
-                                                    60/(time.time()-t)*N))
+    print('it took %.1fs, %.0f fit per minute on average (%.0fms per fit)'%(
+            time.time()-t, 60/(time.time()-t)*N, 1000*(time.time()-t)/N))
 
     # -- show displacement of fit:
     for r in res:

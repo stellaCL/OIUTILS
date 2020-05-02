@@ -1548,7 +1548,7 @@ allInOneAxes = {}
 allInOneResiduals = {}
 allInOneMC = {}
 def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
-           imPow=1., imWl0=None, cmap='bone',  dx=0.0, dy=0.0,
+           imPow=1., imWl0=None, cmap='bone',  dx=0.0, dy=0.0, debug=False,
            showChi2=True, wlMin=None, wlMax=None, allInOne=False, imMax=None,
            figWidth=None, figHeight=None, logB=False, logV=False, color=(1.0,0.2,0.1),
            checkImVis=False, showFlagged=False, onlyMJD=None, showUV=False):
@@ -1594,7 +1594,8 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
                    wlMin=wlMin, wlMax=wlMax, allInOne=allInOne, imMax=imMax,
                    logB=logB, logV=logV, color=color, showFlagged=showFlagged,
                    onlyMJD=onlyMJD, showUV=showUV, figHeight=figHeight,
-                   showChi2=showChi2 and not (allInOne and i<len(oi)-1)
+                   showChi2=showChi2 and not (allInOne and i<len(oi)-1),
+                   debug=debug
                    )
         allInOneAxes = {}
         allInOneResiduals = {}
@@ -1739,7 +1740,11 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
 
             ext = [e for e in ['OI_VIS', 'OI_VIS2'] if e in oi]
             for e in ext:
+                if debug:
+                    print(e, sorted(oi[e].keys()))
                 for k in sorted(oi[e].keys()):
+                    if debug:
+                        print(len(oi[e][k]['MJD']))
                     if not k in mc:
                         mc[k] = markers[i%len(markers)], colors[i%len(colors)]
                         label = k
@@ -1749,19 +1754,19 @@ def showOI(oi, param=None, fig=1, obs=None, showIm=False, fov=None, pix=None,
                     mark, col = mc[k]
 
                     # -- for each MJD:
-                    allMJDs = list(oi[e][k]['MJD'])
+                    allMJDs = oi[e][k]['MJD']
                     if onlyMJD is None:
                         MJDs = allMJDs
                     else:
                         MJDs = [m for m in allMJDs if m in onlyMJD]
                     for mjd in MJDs:
-                        j = allMJDs.index(mjd)
-                        bmax.append(np.sqrt(oi[e][k]['u'][j]**2+
-                                            oi[e][k]['v'][j]**2))
-                        plt.plot(oi[e][k]['u'][j], oi[e][k]['v'][j],
+                        w = allMJDs==mjd
+                        bmax.append(np.sqrt(oi[e][k]['u'][w]**2+
+                                            oi[e][k]['v'][w]**2))
+                        plt.plot(oi[e][k]['u'][w], oi[e][k]['v'][w],
                                 color=col, marker=mark, label=label,
                                 linestyle='none', markersize=5)
-                        plt.plot(-oi[e][k]['u'][j], -oi[e][k]['v'][j],
+                        plt.plot(-oi[e][k]['u'][w], -oi[e][k]['v'][w],
                                 color=col, marker=mark,
                                 linestyle='none', markersize=5)
                         label = ''
